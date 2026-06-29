@@ -1,0 +1,30 @@
+# Rendered output & source media (large; not part of the tool)
+*.mp4
+*.wav
+*.flac
+*.aiff
+*.aif
+*.mp3
+*.m4a
+
+# Per-mix working folders & cover art
+Covers/
+**/Covers/
+_vf/
+**/_vf/
+*_preview/
+**/*_preview/
+Omegascape1/
+
+# Local editor / agent settings
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS cruft
+.DS_Store
+Thumbs.db
