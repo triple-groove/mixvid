@@ -8,6 +8,8 @@ background (drifting blue fog + dotted diagonal rain snakes driven by the audio)
 
 Takes either a **rekordbox `.cue`** export or a **JSON** config.
 
+<img width="1920" height="1080" alt="08_Tenth Planet - Ghosts (Original Club Vocal Mix)" src="https://github.com/user-attachments/assets/bd4dde36-c314-4051-8949-d36c31f9fc7a" />
+
 ## How it works
 - Decodes the audio **once** into a peak envelope (the bottom waveform) and a
   short-time spectrum (drives the spectrogram counter and the rain).
