@@ -189,3 +189,6 @@ Top of `mixvid.py`:
   `-c:v h264_nvenc -preset p5 -cq 19` for a big speedup.
 - The animated background is the slow part; `--static-bg` is the fast path.
 - 4K: `--res 3840x2160` (bump the font sizes in `render_base`/`layout`).
+
+## License
+MIT — see [LICENSE](LICENSE).
