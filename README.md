@@ -158,8 +158,10 @@ The ETA settles after ~10–20 s of frames (it averages over all frames so far).
 ## Options
 ```
 --fps 15            frames/sec (raise to 30 for a smoother playhead)
---res 1920x1080     output resolution
---crf 18            x264 quality (lower = better/bigger)
+--res 1920x1080     render resolution (painters are tuned for 1080p; use --upscale for 4K)
+--crf 18            quality: x264 CRF or NVENC CQ (lower = better/bigger)
+--encoder auto      video encoder: auto (NVENC GPU if available) | nvenc | x264
+--upscale WxH       lanczos-upscale output (e.g. 3840x2160 for a true-4K file)
 --title / --subtitle / --date / --audio    override cue/JSON display fields
 --covers DIR        manual cover folder (01.jpg, 02.png, ...)
 --cover N=PATH      use a specific image for track N (1-based), repeatable
@@ -169,8 +171,30 @@ The ETA settles after ~10–20 s of frames (it averages over all frames so far).
 --preview [DIR]     render one still PNG per track for checking art/names, then exit
 --video-preview [SECS]   render SECS (default 2) of each track, concatenated, then exit
 --static-bg         still background (faster) instead of the animated rain/fog
+--chapters [FILE]   print YouTube chapter timestamps (to FILE or stdout), then exit
 --dry-run           parse + print the tracklist, then exit
 ```
+
+## YouTube chapters
+Generate chapter timestamps for the video description straight from the cue —
+no render or audio needed:
+
+```bash
+python3 mixvid.py 01_REC-2026-06-27.cue --chapters            # print to stdout
+python3 mixvid.py 01_REC-2026-06-27.cue --chapters out.txt    # write to a file
+```
+
+Output is `MM:SS Artist - Title` (switching to `HH:MM:SS` past an hour), with the
+first marker forced to `00:00`. It warns if the data would break YouTube's rules
+for chapters to register (needs >=3 markers, each >=10s).
+
+## GPU encoding & 4K
+`--encoder auto` (the default) uses `h264_nvenc` when your ffmpeg has it, so the
+encode runs on the GPU. The *frame painting* is CPU-bound, though, so this mainly
+speeds up the encode stage rather than the whole render. For 4K, render at the
+tuned 1080p and `--upscale 3840x2160`: it keeps the look and emits a true-4K file
+(YouTube allocates more bitrate to 4K). Native `--res 3840x2160` works but the
+rain/waveform constants are tuned for 1080p and would need re-tuning.
 
 ## Customizing the look
 Top of `mixvid.py`:

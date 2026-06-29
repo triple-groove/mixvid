@@ -93,6 +93,41 @@ def fmt_time(sec):
     return f"{h:01d}:{m:02d}:{s:02d}"
 
 
+def yt_time(sec):
+    """Timestamp in YouTube's accepted chapter style: MM:SS, or HH:MM:SS past an
+    hour (zero-padded, e.g. 00:00, 03:10, 01:02:03)."""
+    sec = max(0, int(round(sec)))
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def youtube_chapters(tracks):
+    """Build YouTube-description chapter markers from parsed cue/JSON tracks.
+
+    Returns one "M:SS Artist - Title" line per track. YouTube's rules for the
+    chapters to register: the first marker must be 0:00, there must be at least
+    three, and each chapter must be >= 10s. The first marker is forced to 0:00;
+    a warning is printed (to stderr) if the source data would violate the
+    >=3 / >=10s rules, but the lines are still returned.
+    """
+    lines, prev = [], None
+    for i, t in enumerate(tracks):
+        sec = 0.0 if i == 0 else parse_time(t["start"])
+        artist = (t.get("artist") or "").strip()
+        title = (t.get("title") or "").strip()
+        label = f"{artist} - {title}" if artist else (title or "Untitled")
+        lines.append(f"{yt_time(sec)} {label}")
+        if prev is not None and sec - prev < 10:
+            print(f"  NOTE: chapter {i+1} ({yt_time(sec)}) is < 10s after the "
+                  f"previous one; YouTube may not register it.", file=sys.stderr)
+        prev = sec
+    if len(tracks) < 3:
+        print("  NOTE: YouTube needs at least 3 chapters to enable chapter markers.",
+              file=sys.stderr)
+    return "\n".join(lines)
+
+
 def audio_duration(path):
     out = subprocess.check_output([
         FFPROBE, "-v", "error", "-show_entries", "format=duration",
@@ -1041,8 +1076,18 @@ def main():
     ap.add_argument("config", help="path to a .json config or a rekordbox .cue file")
     ap.add_argument("out", nargs="?", help="output .mp4 (omit with --dry-run)")
     ap.add_argument("--fps", type=int, default=15)
-    ap.add_argument("--res", default="1920x1080")
-    ap.add_argument("--crf", type=int, default=18)
+    ap.add_argument("--res", default="1920x1080",
+                    help="render resolution (the painters are tuned for 1920x1080; "
+                         "use --upscale for 4K output)")
+    ap.add_argument("--crf", type=int, default=18,
+                    help="quality: x264 CRF, or NVENC CQ (lower = better/bigger)")
+    ap.add_argument("--encoder", choices=("auto", "nvenc", "x264"), default="auto",
+                    help="video encoder. 'auto' uses h264_nvenc (GPU) if available, "
+                         "else libx264. NVENC offloads the encode to the GPU.")
+    ap.add_argument("--upscale", metavar="WxH",
+                    help="output at this resolution by lanczos-upscaling the rendered "
+                         "frames (e.g. 3840x2160 for 4K) — keeps the 1080p-tuned look "
+                         "but emits a true-4K file (YouTube allocates more bitrate to it)")
     # cue / display overrides
     ap.add_argument("--title", help="override mix title")
     ap.add_argument("--subtitle", help="override subtitle (defaults to cue PERFORMER)")
@@ -1068,6 +1113,9 @@ def main():
                     help="use a still background (faster) instead of the animated rain effect")
     ap.add_argument("--dry-run", action="store_true",
                     help="parse and print the tracklist, then exit (no rendering)")
+    ap.add_argument("--chapters", nargs="?", const="-", metavar="FILE",
+                    help="print YouTube-description chapter timestamps and exit; "
+                         "writes to FILE if given, else stdout (no rendering)")
     ap.add_argument("--ffmpeg", help="path to ffmpeg.exe or its bin folder (if not on PATH)")
     ap.add_argument("--ffprobe", help="path to ffprobe.exe or its bin folder (if not on PATH)")
     args = ap.parse_args()
@@ -1117,6 +1165,16 @@ def main():
             art = "embedded" if has else ("no-art" if has is False else "missing")
             print(f"  {i+1:2d}. {fmt_time(starts[i])}  {t['artist'] or '(no artist)'} "
                   f"\u2014 {t['title']}   [art:{art}]")
+        return
+
+    if args.chapters is not None:
+        text_out = youtube_chapters(tracks)
+        if args.chapters == "-":
+            print(text_out)
+        else:
+            with open(args.chapters, "w", encoding="utf-8") as fh:
+                fh.write(text_out + "\n")
+            print(f"Wrote {len(tracks)} chapters -> {args.chapters}", file=sys.stderr)
         return
 
     if not args.out and not preview_mode:
@@ -1240,6 +1298,30 @@ def main():
         return
 
     # ----------------------------------------------------------------- #
+    #  Encoder + optional upscale (resolve once)
+    # ----------------------------------------------------------------- #
+    use_nvenc = args.encoder == "nvenc"
+    if args.encoder == "auto":
+        try:
+            encs = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
+                                  capture_output=True, text=True).stdout
+            use_nvenc = "h264_nvenc" in encs
+        except Exception:
+            use_nvenc = False
+    if use_nvenc:
+        vcodec = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr",
+                  "-cq", str(args.crf), "-pix_fmt", "yuv420p"]
+    else:
+        vcodec = ["-c:v", "libx264", "-crf", str(args.crf),
+                  "-preset", "medium", "-pix_fmt", "yuv420p"]
+    scale_vf = []
+    if args.upscale:
+        uw, uh = (int(x) for x in args.upscale.lower().split("x"))
+        scale_vf = ["-vf", f"scale={uw}:{uh}:flags=lanczos"]
+    print(f"Encoder:  {'h264_nvenc (GPU)' if use_nvenc else 'libx264 (CPU)'}"
+          f"{'  upscale -> ' + args.upscale if args.upscale else ''}", flush=True)
+
+    # ----------------------------------------------------------------- #
     #  Streaming renderer (shared by full render + video preview)
     # ----------------------------------------------------------------- #
     def render_segments(out_path, audio_in, segments, label):
@@ -1247,8 +1329,7 @@ def main():
         cmd = [FFMPEG, "-y", "-v", "error",
                "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(fps),
                "-i", "-", "-i", audio_in,
-               "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", str(args.crf),
-               "-preset", "medium", "-c:a", "aac", "-b:a", "256k",
+               *scale_vf, *vcodec, "-c:a", "aac", "-b:a", "256k",
                "-shortest", out_path]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         totf = sum(n for _, _, n in segments)
