@@ -162,6 +162,8 @@ The ETA settles after ~10–20 s of frames (it averages over all frames so far).
 --crf 18            quality: x264 CRF or NVENC CQ (lower = better/bigger)
 --encoder auto      video encoder: auto (NVENC GPU if available) | nvenc | x264
 --upscale WxH       lanczos-upscale output (e.g. 3840x2160 for a true-4K file)
+--theme rain        background theme: rain | plexus | aurora | ripple | bokeh
+--theme-color C     palette: blue | warm | pink (default: blue, or warm for bokeh)
 --title / --subtitle / --date / --audio    override cue/JSON display fields
 --covers DIR        manual cover folder (01.jpg, 02.png, ...)
 --cover N=PATH      use a specific image for track N (1-based), repeatable
@@ -172,8 +174,34 @@ The ETA settles after ~10–20 s of frames (it averages over all frames so far).
 --video-preview [SECS]   render SECS (default 2) of each track, concatenated, then exit
 --static-bg         still background (faster) instead of the animated rain/fog
 --chapters [FILE]   print YouTube chapter timestamps (to FILE or stdout), then exit
+--missing-art       list only tracks with no real cover art (position + name), then exit
 --dry-run           parse + print the tracklist, then exit
 ```
+
+## Themes
+`--theme` swaps the animated background; `--theme-color` swaps the palette. They
+compose (e.g. `--theme ripple --theme-color pink`).
+
+| `--theme` | Background | Layout |
+|-----------|------------|--------|
+| `rain` (default) | cool rain-on-window snakes drawn on a dot grid | full |
+| `plexus` | drifting constellation of linked nodes, pulses with audio | full |
+| `aurora` | flowing northern-lights curtains (bass swells, highs shimmer) | full |
+| `ripple` | dot-grid sonar rings fired on the kick, expanding off-screen | full |
+| `bokeh` | warm out-of-focus orbs | minimal (no art/tracklist/spectrogram) |
+
+`--theme-color`: `blue` (default), `warm` (default for bokeh), `pink`. Palettes
+live in the `PALETTES` dict near the top of `mixvid.py` (each defines the text
+accents, waveform, spectrogram, grid `dot`, and `fog` colors). Per-background
+tuning lives in the `RAIN` / `PLEXUS` / `AURORA_LAYERS` / `RIPPLE` / bokeh
+constants. `--static-bg` skips the animation for a fast render.
+
+## Track cleaning
+Cue parsing (unless `--no-clean-titles`) repairs mojibake, splits embedded
+`Artist - Title`, strips trailing YouTube ids, and removes a redundant
+`(Original Mix)` tag. Repeated tracks (same artist + title) are dropped after the
+first occurrence, so a cue that lists a track again later is ignored. Use
+`--missing-art` to list which tracks still need a cover supplied via `--covers`.
 
 ## YouTube chapters
 Generate chapter timestamps for the video description straight from the cue —

@@ -40,28 +40,80 @@ FFPROBE = "ffprobe"
 # --------------------------------------------------------------------------- #
 #  Theme  (tweak everything here)
 # --------------------------------------------------------------------------- #
-THEME = {
-    "bg_top":     (12, 22, 34),     # background gradient (top)
-    "bg_bottom":  (4, 7, 14),       # background gradient (bottom)
-    "panel":      (8, 14, 24),      # bottom bar
-    "white":      (240, 244, 248),
-    "gray":       (138, 151, 166),
-    "dim_gray":   (96, 110, 126),
-    "accent":     (63, 160, 216),   # artist names / "blue" text
-    "accent2":    (41, 196, 240),   # bright cyan (counter bottom number, playhead)
-    "wave_off":   (108, 122, 138),  # un-played waveform bars
-    "wave_on":    (224, 234, 242),  # played waveform bars
-    "wave_mark":  (60, 190, 235),   # track-start tick on the waveform timeline
-    "playhead":   (191, 233, 255),
-    "spectrum":   (41, 196, 240),   # live spectrogram bars by the counter
+# Named color palettes, selectable with --theme-color. Every theme picks a
+# default (rain -> blue, bokeh -> warm); --theme-color overrides it.
+PALETTES = {
+    # cool blue "rain on window" (the original look)
+    "blue": {
+        "bg_top":     (12, 22, 34),     # background gradient (top)
+        "bg_bottom":  (4, 7, 14),       # background gradient (bottom)
+        "panel":      (8, 14, 24),      # bottom bar
+        "white":      (240, 244, 248),
+        "gray":       (138, 151, 166),
+        "dim_gray":   (96, 110, 126),
+        "accent":     (63, 160, 216),   # artist names / "blue" text
+        "accent2":    (41, 196, 240),   # bright cyan (counter bottom number, playhead)
+        "wave_off":   (108, 122, 138),  # un-played waveform bars
+        "wave_on":    (224, 234, 242),  # played waveform bars
+        "wave_mark":  (60, 190, 235),   # track-start tick on the waveform timeline
+        "playhead":   (191, 233, 255),
+        "spectrum":   (41, 196, 240),   # live spectrogram bars by the counter
+        "dot":        (130, 180, 230),  # rain/ripple grid dots
+        "fog":        (30, 70, 116),    # drifting fog aura tint
+    },
+    # warm amber "bokeh lounge"
+    "warm": {
+        "bg_top":     (28, 16, 10),
+        "bg_bottom":  (6, 3, 3),
+        "panel":      (14, 8, 6),
+        "white":      (245, 230, 215),
+        "gray":       (205, 172, 142),
+        "dim_gray":   (150, 124, 100),
+        "accent":     (232, 196, 150),  # amber artist / accent text
+        "accent2":    (255, 236, 196),  # bright amber (counter, playhead)
+        "wave_off":   (120, 98, 74),
+        "wave_on":    (240, 214, 168),
+        "wave_mark":  (255, 200, 140),
+        "playhead":   (255, 236, 196),
+        "spectrum":   (240, 184, 124),
+        "dot":        (235, 180, 120),
+        "fog":        (70, 45, 30),
+    },
+    # pink / magenta neon
+    "pink": {
+        "bg_top":     (22, 12, 26),     # dark purple background
+        "bg_bottom":  (6, 4, 12),
+        "panel":      (16, 8, 18),
+        "white":      (246, 240, 248),
+        "gray":       (176, 150, 178),
+        "dim_gray":   (124, 104, 126),
+        "accent":     (236, 92, 182),   # pink artist / accent text
+        "accent2":    (255, 122, 212),  # bright magenta (counter, playhead)
+        "wave_off":   (112, 92, 116),
+        "wave_on":    (242, 186, 222),
+        "wave_mark":  (255, 110, 200),
+        "playhead":   (255, 170, 226),
+        "spectrum":   (255, 116, 204),
+        "dot":        (236, 120, 202),  # pink ripple/grid dots
+        "fog":        (78, 30, 78),     # magenta fog aura tint
+    },
 }
+# THEME is the *active* palette; main() points it at PALETTES[<chosen>] before
+# anything renders, so functions can keep reading THEME["..."] at call time.
+THEME = PALETTES["blue"]
 
-# Font files (Liberation Sans ~ Arial metrics; swap for your own geometric sans)
+# Font files. Sans (Liberation ~ Arial) for the default look; a serif face for
+# the bokeh theme. main() repoints FONT_REG/BOLD/THIN to the serifs for --theme
+# bokeh, so render code keeps reading the same names.
 FONT_REG  = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 FONT_MONO = "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
 # thin/geometric face for the big track counter (lower-right)
 FONT_THIN = "/usr/share/fonts/truetype/dejavu/DejaVuSans-ExtraLight.ttf"
+# serif faces (bokeh theme)
+FONT_SERIF        = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"
+FONT_SERIF_BOLD   = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
+FONT_SERIF_ITALIC = "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf"
 for _f in (FONT_REG, FONT_BOLD, FONT_MONO):
     if not os.path.exists(_f):                      # fall back to DejaVu
         FONT_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -70,6 +122,16 @@ for _f in (FONT_REG, FONT_BOLD, FONT_MONO):
         break
 if not os.path.exists(FONT_THIN):
     FONT_THIN = FONT_REG
+if not os.path.exists(FONT_SERIF):                  # fall back to DejaVu Serif
+    FONT_SERIF        = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
+    FONT_SERIF_BOLD   = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
+    FONT_SERIF_ITALIC = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"
+if not os.path.exists(FONT_SERIF):                  # last resort: the sans face
+    FONT_SERIF = FONT_REG
+if not os.path.exists(FONT_SERIF_BOLD):
+    FONT_SERIF_BOLD = FONT_BOLD
+if not os.path.exists(FONT_SERIF_ITALIC):
+    FONT_SERIF_ITALIC = FONT_SERIF
 
 
 # --------------------------------------------------------------------------- #
@@ -377,17 +439,294 @@ def make_bg_base(W, H, blobs=True):
     return np.clip(base, 0, 255).astype(np.uint8)
 
 
-def make_fog_tex(W, H, pad=170):
-    """Half-resolution blurred blue 'fog' texture, larger than the half-frame by
-    `pad` on each axis so it can be slowly panned (the drifting/blowing aura)."""
+# --------------------------------------------------------------------------- #
+#  Bokeh background (the "bokeh lounge" theme): warm out-of-focus orbs drifting
+#  over a vignette, with film grain and a darkened bottom scrim. Replaces the
+#  rain+fog background when --theme bokeh is selected.
+# --------------------------------------------------------------------------- #
+BOKEH_WARM = [(255, 196, 120), (255, 150, 90), (240, 120, 140),
+              (255, 220, 170), (255, 175, 110)]
+
+
+def _bokeh_sprite(r, tint, bright):
+    """A soft out-of-focus disc: bright-ish core + a faint brighter rim."""
+    s = 2 * r + 1
+    yy, xx = np.mgrid[0:s, 0:s]
+    d = np.sqrt((xx - r) ** 2 + (yy - r) ** 2)
+    core = np.clip(1 - (d / r) ** 2.2, 0, 1)
+    ring = np.exp(-((d - 0.82 * r) ** 2) / (2 * (0.12 * r) ** 2)) * 0.55
+    a = np.clip(core * 0.85 + ring, 0, 1)
+    a[d > r] = 0
+    return np.array(tint, np.float32)[None, None, :] * a[..., None] * (bright / 255.0)
+
+
+def make_bokeh(W, H):
+    """Build the bokeh field once: drifting orb sprites, gradient, vignette,
+    bottom scrim. Sizes scale with resolution (tuned at 1080p)."""
+    rng = np.random.default_rng(15)
+    sc = H / 1080.0
+    particles = []
+
+    def spawn(count, rmin, rmax, bmin, bmax, amp, yb=0.0):
+        for _ in range(count):
+            r = max(2, int(rng.integers(rmin, rmax)))
+            tint = BOKEH_WARM[rng.integers(0, len(BOKEH_WARM))]
+            particles.append(dict(
+                spr=_bokeh_sprite(r, tint, rng.uniform(bmin, bmax)),
+                hx=rng.uniform(-40, W + 40), hy=rng.uniform(-40, H * 0.72),
+                ax=rng.uniform(amp * 0.4, amp), ay=rng.uniform(amp * 0.4, amp),
+                phx=rng.uniform(0, 2 * np.pi), phy=rng.uniform(0, 2 * np.pi),
+                harm=int(rng.choice([1, 1, 2])), tw=rng.uniform(0.45, 0.85),
+                tp=rng.uniform(0, 2 * np.pi), twh=int(rng.choice([1, 2])),
+                drift=rng.uniform(-amp, amp) + yb))
+    spawn(46, int(40 * sc), int(92 * sc), 60, 110, 26 * sc, -10 * sc)
+    spawn(22, int(16 * sc), int(40 * sc), 120, 190, 36 * sc, -14 * sc)
+    spawn(14, int(5 * sc), int(13 * sc), 180, 235, 48 * sc, -18 * sc)
+
+    top = np.array(THEME["bg_top"], np.float32)
+    bot = np.array(THEME["bg_bottom"], np.float32)
+    gg = np.linspace(0, 1, H)[:, None, None]
+    bg = np.repeat(top * (1 - gg) + bot * gg, W, axis=1).astype(np.float32)
+    yy, xx = np.mgrid[0:H, 0:W]
+    vd = np.sqrt((xx - W / 2) ** 2 + (yy - H / 2) ** 2)
+    vd /= vd.max()
+    vig = np.clip(1 - 0.6 * vd ** 2.0, 0, 1)[..., None].astype(np.float32)
+    sh = int(230 * sc)                                       # bottom scrim height
+    ramp = np.clip((np.arange(H) - (H - sh)) / sh, 0, 1) ** 1.4
+    scrim = (ramp[:, None, None] * np.ones((H, W, 1), np.float32)) * 0.92
+    return dict(particles=particles, bg=bg, vig=vig, scrim=scrim,
+                rng=np.random.default_rng(99), W=W, H=H)
+
+
+def _bokeh_add(buf, spr, cx, cy, f):
+    r = spr.shape[0] // 2
+    x0, y0 = cx - r, cy - r
+    H, W = buf.shape[:2]
+    bx0, by0 = max(0, x0), max(0, y0)
+    bx1, by1 = min(W, x0 + spr.shape[1]), min(H, y0 + spr.shape[0])
+    if bx0 >= bx1 or by0 >= by1:
+        return
+    buf[by0:by1, bx0:bx1] += spr[by0 - y0:by1 - y0, bx0 - x0:bx1 - x0] * f
+
+
+def bokeh_frame(bk, g, fps, period=8.0):
+    """Render one bokeh background frame (returns an HxWx3 uint8 array)."""
+    ph = 2 * np.pi * g / (period * fps)
+    buf = bk["bg"].copy()
+    for p in bk["particles"]:
+        x = p["hx"] + p["ax"] * np.sin(p["harm"] * ph + p["phx"])
+        y = p["hy"] + p["ay"] * np.sin(p["harm"] * ph + p["phy"]) + p["drift"] * np.sin(ph)
+        fac = p["tw"] * (0.7 + 0.3 * np.sin(p["twh"] * ph + p["tp"])) + 0.15
+        _bokeh_add(buf, p["spr"], int(x), int(y), fac)
+    buf *= bk["vig"]
+    buf += bk["rng"].normal(0, 4, (bk["H"], bk["W"], 1))    # film grain
+    buf *= (1 - bk["scrim"])                                # darken bottom for text
+    np.clip(buf, 0, 255, out=buf)
+    return buf.astype(np.uint8)
+
+
+# --------------------------------------------------------------------------- #
+#  Plexus / constellation background (the "plexus" theme): slowly drifting nodes
+#  linked by thin lines when near each other; the whole web brightens/pulses with
+#  the audio. Keeps the default layout — only replaces the rain snakes.
+# --------------------------------------------------------------------------- #
+PLEXUS = dict(n=90, speed=0.45, link=210, node_r=2.6, color=(130, 185, 240))
+
+
+def make_plexus(W, H):
+    """Seed the drifting node field. Count scales with frame area, sizes with H."""
+    rng = np.random.default_rng(21)
+    s = H / 1080.0
+    n = max(8, int(round(PLEXUS["n"] * (W * H) / (1920.0 * 1080.0))))
+    pos = rng.uniform(0, 1, (n, 2)).astype(np.float32) * np.array([W, H], np.float32)
+    ang = rng.uniform(0, 2 * np.pi, n)
+    spd = PLEXUS["speed"] * s * rng.uniform(0.5, 1.5, n)
+    vel = np.stack([np.cos(ang) * spd, np.sin(ang) * spd], 1).astype(np.float32)
+    return dict(pos=pos, vel=vel, W=W, H=H,
+                link=PLEXUS["link"] * s, nr=max(1.5, PLEXUS["node_r"] * s))
+
+
+def paint_plexus(buf, ctx, pulse):
+    """Advance + draw the constellation onto buf, kept behind the UI (suppressed
+    where the overlay is opaque). `pulse` (0..1) is the current audio energy."""
+    pk = ctx["plexus"]
+    pos = pk["pos"]
+    pos += pk["vel"]
+    np.mod(pos, np.array([pk["W"], pk["H"]], np.float32), out=pos)   # wrap at edges
+    link = pk["link"]
+    diff = pos[:, None, :] - pos[None, :, :]
+    dist = np.sqrt((diff ** 2).sum(2))
+    iu, ju = np.triu_indices(len(pos), 1)
+    dd = dist[iu, ju]
+    sel = dd < link
+    iu, ju, dd = iu[sel], ju[sel], dd[sel]
+    base = np.array(PLEXUS["color"], np.float32)
+    glob = 0.40 + 0.85 * pulse                                       # audio brightness
+    lay = Image.new("RGBA", (pk["W"], pk["H"]), (0, 0, 0, 0))
+    d = ImageDraw.Draw(lay, "RGBA")
+    col = tuple(int(x) for x in base)
+    for a, b, dv in zip(iu, ju, dd):
+        al = (1.0 - dv / link) * glob
+        if al <= 0.02:
+            continue
+        d.line([(pos[a][0], pos[a][1]), (pos[b][0], pos[b][1])],
+               fill=col + (int(min(1.0, al) * 170),), width=1)
+    nr = pk["nr"]
+    nb = tuple(int(x) for x in np.clip(base * 1.12, 0, 255)) + (int(min(1.0, glob) * 235),)
+    for p in pos:
+        d.ellipse([p[0] - nr, p[1] - nr, p[0] + nr, p[1] + nr], fill=nb)
+    arr = np.asarray(lay)
+    la = arr[..., 3:4].astype(np.float32) / 255.0                   # HxWx1 alpha
+    la *= (ctx["ov_a"][..., None] < 40)                            # keep behind UI
+    v = buf.astype(np.float32) * (1 - la) + arr[..., :3].astype(np.float32) * la
+    buf[:] = np.clip(v, 0, 255).astype(np.uint8)
+
+
+# --------------------------------------------------------------------------- #
+#  Aurora background (the "aurora" theme): flowing northern-lights curtains.
+#  Bass swells the slow horizontal waves; highs add shimmer. Rendered small and
+#  upscaled (it's soft), added as light behind the default layout.
+# --------------------------------------------------------------------------- #
+AURORA_LAYERS = [
+    # cy/amp/sig are fractions of frame height; waves: (freq, amp_frac, speed, phase)
+    dict(cy=0.30, amp=0.11, sig=0.085, col=(70, 225, 175),
+         waves=[(1.0, 0.55, 0.06, 0.0), (2.3, 0.30, 0.10, 1.7), (0.6, 0.15, 0.04, 3.1)]),
+    dict(cy=0.42, amp=0.14, sig=0.110, col=(58, 165, 235),
+         waves=[(0.8, 0.60, 0.05, 0.6), (1.7, 0.28, 0.09, 2.2), (3.1, 0.12, 0.14, 0.3)]),
+    dict(cy=0.22, amp=0.09, sig=0.140, col=(120, 120, 232),
+         waves=[(0.6, 0.70, 0.04, 1.1), (1.3, 0.30, 0.07, 2.8)]),
+]
+
+
+def make_aurora(W, H):
+    ds = 3                                          # render at 1/3 res, upscale (soft)
+    w, h = max(1, W // ds), max(1, H // ds)
+    return dict(ds=ds, w=w, h=h, W=W, H=H,
+                xs=np.linspace(0.0, 1.0, w, dtype=np.float32),
+                yg=np.arange(h, dtype=np.float32)[:, None])
+
+
+def paint_aurora(buf, g, ctx, sf):
+    """Draw the aurora for this frame (bass -> wave swell, highs -> shimmer,
+    overall energy -> brightness), kept behind the UI via the overlay mask."""
+    au = ctx["aurora"]
+    w, h, xs, yg = au["w"], au["h"], au["xs"], au["yg"]
+    t = g / ctx["fps"]
+    nb = len(sf)
+    third = max(1, nb // 3)
+    bass = float(sf[:third].mean())
+    high = float(sf[-third:].mean())
+    gain = 0.18 + 0.55 * float(sf.mean())
+    shimmer = 1.0 + 0.8 * high * np.sin(2 * np.pi * 16.0 * xs + 9.0 * t)
+    folds = (0.45 + 0.55 * np.sin(2 * np.pi * 2.4 * xs + 0.5 * t)) * \
+            (0.60 + 0.40 * np.sin(2 * np.pi * 5.1 * xs - 0.7 * t + 1.3))
+    colint = np.clip(folds * shimmer, 0.0, 1.6)
+    acc = np.zeros((h, w, 3), np.float32)
+    for L in AURORA_LAYERS:
+        wave = np.zeros(w, np.float32)
+        for (f, a, sp, ph) in L["waves"]:
+            wave += a * np.sin(2 * np.pi * f * xs + sp * t * 2 * np.pi + ph)
+        yc = L["cy"] * h + L["amp"] * h * (0.5 + 1.6 * bass) * wave
+        sig = max(1.0, L["sig"] * h)
+        dy = yg - yc[None, :]
+        band = np.exp(-(dy * dy) / (2.0 * sig * sig))
+        inten = band * (colint[None, :] * gain)
+        acc += inten[..., None] * np.asarray(L["col"], np.float32)
+    acc = np.clip(acc, 0, 255).astype(np.uint8)
+    up = np.asarray(Image.fromarray(acc).resize((au["W"], au["H"]), Image.BILINEAR),
+                    np.float32)
+    m = ctx["ov_a"][..., None] < 40                 # keep behind the UI
+    v = buf.astype(np.float32) + up * m
+    buf[:] = np.clip(v, 0, 255).astype(np.uint8)
+
+
+# --------------------------------------------------------------------------- #
+#  Grid ripples background (the "ripple" theme): the faint dot grid comes alive
+#  as expanding sonar rings. A kick (rise in bass) drops a new ring at full,
+#  saturated brightness with a dim trailing wake; the ring keeps expanding at
+#  that brightness and is only dropped once it (and its wake) leave the screen,
+#  so rings read as carrying on forever rather than fading out mid-frame. Built
+#  on the same dot grid the rain snaps to.
+# --------------------------------------------------------------------------- #
+RIPPLE = dict(speed=7.0, thick=6.0, wake_len=70.0, kick_thresh=0.030, gain=4.0,
+              wake_amp=0.38, cooldown=5, ambient_every=40, max_rings=80)
+
+
+def _saturate(rgb):
+    """Fully-saturated, full-value version of an RGB color (same hue)."""
+    h, _, _ = colorsys.rgb_to_hsv(*(c / 255.0 for c in rgb))
+    r, g, b = colorsys.hsv_to_rgb(h, 1.0, 1.0)
+    return np.array([r * 255, g * 255, b * 255], np.float32)
+
+
+def _ring_maxr(cx, cy, W, H):
+    """Distance from a ring center to the farthest screen corner (so we know when
+    the ring has fully left the frame)."""
+    return max(np.hypot(cx, cy), np.hypot(W - cx, cy),
+               np.hypot(cx, H - cy), np.hypot(W - cx, H - cy))
+
+
+def advance_ripples(ctx, g, sf):
+    """Spawn rings (one per kick, throttled, + an occasional ambient ring) and
+    cull only the ones whose wake has fully crossed off the screen."""
+    rng, W, H = ctx["rng"], ctx["W"], ctx["H"]
+    nb = len(sf)
+    third = max(1, nb // 3)
+    bass = float(sf[:third].mean())
+    kick = max(0.0, bass - ctx["rip_prev"])
+    ctx["rip_prev"] = 0.5 * ctx["rip_prev"] + 0.5 * bass
+    speed, wl = RIPPLE["speed"], RIPPLE["wake_len"]
+    # keep a ring while even its inner wake edge is still within the far corner
+    ctx["ripples"] = [r for r in ctx["ripples"]
+                      if (g - r["born"]) * speed - wl < r["maxr"]]
+
+    def spawn(inten):
+        cx, cy = rng.uniform(0, W), rng.uniform(0, H)
+        ctx["ripples"].append(dict(cx=cx, cy=cy, born=g, inten=inten,
+                                   maxr=_ring_maxr(cx, cy, W, H)))
+    if kick > RIPPLE["kick_thresh"] and g - ctx["rip_last"] >= RIPPLE["cooldown"]:
+        spawn(min(1.5, kick * RIPPLE["gain"]))
+        ctx["rip_last"] = g
+    if g % RIPPLE["ambient_every"] == 0:
+        spawn(0.6)
+    if len(ctx["ripples"]) > RIPPLE["max_rings"]:
+        ctx["ripples"] = ctx["ripples"][-RIPPLE["max_rings"]:]   # oldest are off-screen
+
+
+def paint_ripple(buf, g, ctx):
+    """Light the (UI-visible) grid dots: a dim baseline, plus each ring's sharp
+    saturated front and the dim wake trailing behind it. No distance fade."""
+    gxv, gyv, faintv = ctx["gv"]
+    if not gxv.size:
+        return
+    col = ctx["rip_col"]
+    thick, wl, wa = RIPPLE["thick"], RIPPLE["wake_len"], RIPPLE["wake_amp"]
+    speed = RIPPLE["speed"]
+    bright = faintv.astype(np.float32).copy()        # always-on dim grid
+    for r in ctx["ripples"]:
+        radius = (g - r["born"]) * speed
+        d = np.sqrt((gxv - r["cx"]) ** 2 + (gyv - r["cy"]) ** 2)
+        front = np.exp(-((d - radius) ** 2) / (2.0 * thick * thick))   # sharp ring
+        trail = np.clip(1.0 - (radius - d) / wl, 0.0, 1.0)             # behind the front
+        trail[d > radius] = 0.0
+        bright += r["inten"] * (front + wa * trail)
+    np.clip(bright, 0.0, 1.6, out=bright)
+    add = (col[None, :] * bright[:, None]).astype(np.int16)
+    _add_dots(buf, gyv, gxv, add)
+
+
+def make_fog_tex(W, H, pad=170, tint=(30, 70, 116)):
+    """Half-resolution blurred 'fog' texture (tinted to the palette), larger than
+    the half-frame by `pad` on each axis so it can be slowly panned (the aura)."""
     fw, fh = W // 2, H // 2
     rng = np.random.default_rng(99)
+    base = np.asarray(tint, np.float32)
     img = Image.new("RGB", (fw + pad, fh + pad), (0, 0, 0))
     d = ImageDraw.Draw(img)
     for _ in range(8):
         cx, cy = rng.uniform(0, fw + pad), rng.uniform(0, fh + pad)
         r = rng.uniform(0.22, 0.55) * fh
-        col = (int(rng.uniform(18, 42)), int(rng.uniform(52, 88)), int(rng.uniform(92, 140)))
+        col = tuple(int(min(255, v)) for v in base * rng.uniform(0.65, 1.15))
         d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
     img = img.filter(ImageFilter.GaussianBlur(55))
     return np.asarray(img), pad
@@ -490,9 +829,9 @@ def advance_rain(ctx, g, sf):
 # --------------------------------------------------------------------------- #
 #  Layout geometry
 # --------------------------------------------------------------------------- #
-def layout(W, H):
+def layout(W, H, theme="rain"):
     art = int(H * 0.57)
-    return {
+    L = {
         "art_x": 60, "art_y": 60, "art": art,
         "head_x": art + 120, "head_y": 64,
         "list_x": art + 120, "list_y": 175,
@@ -509,6 +848,14 @@ def layout(W, H):
         "spec_x": W - 70 - 290, "spec_w": 165,
         "spec_y": int(H * 0.64), "spec_h": 2 * 76,
     }
+    if theme == "bokeh":
+        # bokeh lounge (concept look): a slim timeline pinned to the very bottom,
+        # timecode bottom-right above it (positioned in ctx).
+        S = H / 1080.0
+        L["wave_h"] = int(34 * S)
+        L["wave_y"] = H - int(48 * S)
+        L["tc_y"]   = H - int(128 * S)
+    return L
 
 
 # --------------------------------------------------------------------------- #
@@ -608,6 +955,36 @@ def render_base(cfg, tracks, i, W, H, L, covers, dim_band_img):
     return arr[:, :, :3].copy(), arr[:, :, 3].copy()    # (overlay_rgb, overlay_alpha)
 
 
+def render_base_bokeh(cfg, tracks, i, W, H):
+    """Minimal 'bokeh lounge' overlay (the concept look): the current track's
+    artist (serif italic) and title bottom-left, the NN / TT count bottom-right.
+    No album art, tracklist, or spectrogram — everything else is the bokeh field
+    and the slim bottom timeline (painted per frame)."""
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img, "RGBA")
+    S = H / 1080.0
+    cur = tracks[i]
+    artist = (cur.get("artist") or "").strip()
+    title  = (cur.get("title") or "").strip()
+    lx = int(80 * S)
+    f_artist = font(FONT_SERIF_ITALIC, int(58 * S))
+    f_title  = font(FONT_SERIF, int(34 * S))
+    f_count  = font(FONT_SERIF, int(42 * S))
+    maxw = int(W * 0.66)
+    artist = ellipsize(d, artist, f_artist, maxw)
+    title  = ellipsize(d, title, f_title, maxw)
+    # thin accent rule above the artist
+    ry = H - int(196 * S)
+    d.line([(lx, ry), (lx + int(230 * S), ry)], fill=THEME["accent"], width=max(1, int(2 * S)))
+    text(d, (lx, H - int(180 * S)), artist, f_artist, THEME["white"])
+    text(d, (lx + int(2 * S), H - int(104 * S)), title, f_title, THEME["gray"])
+    # NN / TT count, bottom-right, aligned with the artist line
+    text(d, (W - int(70 * S), H - int(176 * S)),
+         f"{i + 1:02d} / {len(tracks):02d}", f_count, THEME["accent"], anchor="ra")
+    arr = np.asarray(img)
+    return arr[:, :, :3].copy(), arr[:, :, 3].copy()
+
+
 # --------------------------------------------------------------------------- #
 #  Waveform band images (dim + bright), built once
 # --------------------------------------------------------------------------- #
@@ -703,6 +1080,8 @@ def clean_track_title(title, performer, do_clean):
         return title.strip(), artist.strip()
     # strip a trailing YouTube id  "...-bXLC5a7GgR4"
     title = re.sub(r"-[A-Za-z0-9_-]{11}$", "", title).strip()
+    # drop a redundant "(Original Mix)" tag wherever it appears
+    title = re.sub(r"\s*\(\s*original mix\s*\)", "", title, flags=re.I).strip()
     # if no performer but "Artist - Title" is embedded in the title, split it
     if not artist and " - " in title:
         artist, title = title.split(" - ", 1)
@@ -769,6 +1148,19 @@ def parse_cue(path, args):
         title, artist = clean_track_title(t["title"], t["performer"], not args.no_clean_titles)
         out_tracks.append({"title": title, "artist": artist,
                            "start": t["start"], "src": t["src"]})
+
+    # drop repeated tracks (same artist + title); keep the first occurrence, so a
+    # track that the cue lists again later is ignored (the prior one plays through)
+    seen, deduped = set(), []
+    for t in out_tracks:
+        key = (t["artist"].strip().lower(), t["title"].strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(t)
+    if len(deduped) != len(out_tracks):
+        print(f"  ({len(out_tracks) - len(deduped)} repeated track(s) ignored)", flush=True)
+    out_tracks = deduped
 
     # mix-level display fields (CLI overrides win)
     date = args.date or _format_cue_date(header["date"])
@@ -946,6 +1338,31 @@ def resolve_cover(track, idx, size, args, tmpdir, base_dir):
     return placeholder_cover(seed, size)
 
 
+def has_real_art(track, idx, args, base_dir):
+    """True if track idx resolves to a real cover from any source (override,
+    --covers folder, cover field, or embedded art); False if it would fall back
+    to a generated placeholder. Mirrors resolve_cover's priority without loading."""
+    p = getattr(args, "cover_map", {}).get(idx + 1)
+    if p:
+        if not os.path.isabs(p):
+            p = os.path.join(base_dir, p)
+        if os.path.exists(p):
+            return True
+    if args.covers:
+        for ext in ("jpg", "jpeg", "png", "webp"):
+            for name in (f"{idx + 1:02d}.{ext}", f"{idx + 1}.{ext}"):
+                if os.path.exists(os.path.join(args.covers, name)):
+                    return True
+    cp = track.get("cover")
+    if cp:
+        if not os.path.isabs(cp):
+            cp = os.path.join(base_dir, cp)
+        if os.path.exists(cp):
+            return True
+    src = remap_src(track.get("src", ""), args.music_root)
+    return src_has_art(src) is True
+
+
 def load_config(path, args):
     if path.lower().endswith(".cue"):
         return parse_cue(path, args)
@@ -988,8 +1405,11 @@ def paint_timecode(buf, t_global, ctx):
     region = buf[tb[1]:tb[1] + tb[3], tb[0]:tb[0] + tb[2]]
     pim = Image.fromarray(region.copy())                 # draw over the live bg
     tot = fmt_time(ctx["total"]) if ctx["total"] else "--:--:--"
-    ImageDraw.Draw(pim).text((0, 0), f"{fmt_time(t_global)}  /  {tot}",
-                             font=ctx["f_tc"], fill=THEME["white"])
+    anchor = ctx.get("tc_anchor", "la")
+    x = tb[2] if anchor == "ra" else 0
+    ImageDraw.Draw(pim).text((x, 0), f"{fmt_time(t_global)}  /  {tot}",
+                             font=ctx["f_tc"], fill=ctx.get("tc_fill", THEME["white"]),
+                             anchor=anchor)
     region[:] = np.asarray(pim)
 
 
@@ -1111,8 +1531,20 @@ def main():
                          "start, concatenated, with matching audio")
     ap.add_argument("--static-bg", action="store_true",
                     help="use a still background (faster) instead of the animated rain effect")
+    ap.add_argument("--theme", choices=("rain", "plexus", "aurora", "ripple", "bokeh"),
+                    default="rain",
+                    help="visual theme: 'rain' (cool rain-on-window, default), "
+                         "'plexus' (drifting constellation), 'aurora' (flowing "
+                         "northern lights), 'ripple' (dot-grid sonar rings on the "
+                         "beat) — all keep the default layout; or 'bokeh' (warm "
+                         "lounge, minimal layout)")
+    ap.add_argument("--theme-color", choices=tuple(PALETTES), default=None,
+                    help="color palette override (default: blue for rain, warm for bokeh)")
     ap.add_argument("--dry-run", action="store_true",
                     help="parse and print the tracklist, then exit (no rendering)")
+    ap.add_argument("--missing-art", action="store_true",
+                    help="list only the tracks with no real cover art (position + name), "
+                         "then exit — use to see which covers to supply via --covers")
     ap.add_argument("--chapters", nargs="?", const="-", metavar="FILE",
                     help="print YouTube-description chapter timestamps and exit; "
                          "writes to FILE if given, else stdout (no rendering)")
@@ -1120,6 +1552,14 @@ def main():
     ap.add_argument("--ffprobe", help="path to ffprobe.exe or its bin folder (if not on PATH)")
     args = ap.parse_args()
     resolve_tools(args)
+
+    # Resolve theme + palette before anything renders: point the active THEME at
+    # the chosen palette, and (for bokeh) repoint the font names to the serifs.
+    global THEME, FONT_REG, FONT_BOLD, FONT_THIN
+    color = args.theme_color or ("warm" if args.theme == "bokeh" else "blue")
+    THEME = PALETTES[color]
+    if args.theme == "bokeh":
+        FONT_REG, FONT_BOLD, FONT_THIN = FONT_SERIF, FONT_SERIF_BOLD, FONT_SERIF
 
     for spec in (args.music_root or []):
         if "=" not in spec:
@@ -1167,6 +1607,19 @@ def main():
                   f"\u2014 {t['title']}   [art:{art}]")
         return
 
+    if args.missing_art:
+        base_dir = os.path.dirname(os.path.abspath(args.config))
+        missing = [(i, t) for i, t in enumerate(tracks)
+                   if not has_real_art(t, i, args, base_dir)]
+        if not missing:
+            print("All tracks have cover art.")
+        else:
+            print(f"Tracks with missing art ({len(missing)} of {len(tracks)}):")
+            for i, t in missing:
+                name = f"{t['artist']} \u2014 {t['title']}".strip(" \u2014") or "(untitled)"
+                print(f"  {i+1:2d}. {name}")
+        return
+
     if args.chapters is not None:
         text_out = youtube_chapters(tracks)
         if args.chapters == "-":
@@ -1188,7 +1641,7 @@ def main():
             ap.error(f"audio not found: {audio}")
     ends = starts[1:] + [total]
 
-    L = layout(W, H)
+    L = layout(W, H, args.theme)
     # one now-playing title size for all tracks, sized so the longest title fits
     _scratch = ImageDraw.Draw(Image.new("RGB", (4, 4)))
     cfg["nt_size"] = uniform_fit(_scratch, [t.get("title", "") for t in tracks],
@@ -1202,16 +1655,37 @@ def main():
     else:
         env = 0.22 + 0.12 * np.abs(np.sin(np.linspace(0, 60, n_bars)))   # placeholder
     print("Building background ...", flush=True)
+    bokeh_mode  = args.theme == "bokeh"
+    plexus_mode = args.theme == "plexus"
+    aurora_mode = args.theme == "aurora"
+    ripple_mode = args.theme == "ripple"
+    rain_mode   = args.theme == "rain"
     animate = not args.static_bg
-    static_base = make_bg_base(W, H, blobs=not animate)   # blobs static only when not animating
-    fog_tex, fog_pad = make_fog_tex(W, H) if animate else (None, 0)
     marks = [s / total for s in starts] if total else []
-    # dot grid + spectrum-driven raindrop field (snakes spawned per frame)
-    _rng = np.random.default_rng(7)
-    _sp = 8
-    _gx, _gy = np.meshgrid(np.arange(3, W - 2, _sp), np.arange(3, H - 2, _sp))
-    grid_x, grid_y = _gx.ravel(), _gy.ravel()
-    grid_faint = 0.022 + 0.03 * _rng.random(grid_x.size)
+    bokeh = plexus = aurora = None
+    grid_x = grid_y = grid_faint = None
+    if bokeh_mode:
+        # warm bokeh field rebuilt per frame; no static base / rain / fog needed
+        bokeh = make_bokeh(W, H)
+        static_base = None
+        fog_tex, fog_pad = None, 0
+    else:
+        # rain / plexus / aurora / ripple share the static gradient bg
+        static_base = make_bg_base(W, H, blobs=not animate)   # blobs static only when not animating
+        # rain + plexus + ripple use the drifting fog aura underneath
+        fog_tex, fog_pad = make_fog_tex(W, H, tint=THEME["fog"]) \
+            if (animate and not aurora_mode) else (None, 0)
+        if plexus_mode:
+            plexus = make_plexus(W, H)
+        if aurora_mode:
+            aurora = make_aurora(W, H)
+        if rain_mode or ripple_mode:
+            # dot grid: rain snaps snakes to it; ripple lights it up in rings
+            _rng = np.random.default_rng(7)
+            _sp = 8
+            _gx, _gy = np.meshgrid(np.arange(3, W - 2, _sp), np.arange(3, H - 2, _sp))
+            grid_x, grid_y = _gx.ravel(), _gy.ravel()
+            grid_faint = 0.022 + 0.03 * _rng.random(grid_x.size)
 
     if audio and os.path.exists(audio):
         print("Analyzing spectrum ...", flush=True)
@@ -1219,23 +1693,30 @@ def main():
     else:
         spec = None
 
-    print("Loading cover art ...", flush=True)
-    try:
-        import mutagen  # noqa: F401
-    except ImportError:
-        if any(t.get("src") for t in tracks) and not args.covers:
-            print("  hint: `pip install mutagen` for reliable embedded-art extraction "
-                  "(needed for AIFF; ffmpeg alone misses those).", flush=True)
     base_dir = os.path.dirname(os.path.abspath(args.config))
     tmpdir = tempfile.mkdtemp(prefix="mixvid_")
-    covers = [resolve_cover(t, n, L["art"], args, tmpdir, base_dir)
-              for n, t in enumerate(tracks)]
-
-    # Per-track waveform colors: played region = the cover's average color,
-    # upcoming = grey, track-start ticks = a saturated version of the cover color.
-    palettes = [cover_palette(c) for c in covers]
+    if bokeh_mode:
+        # the minimal bokeh layout has no album art / thumbnails
+        covers, palettes = [None] * len(tracks), None
+    else:
+        print("Loading cover art ...", flush=True)
+        try:
+            import mutagen  # noqa: F401
+        except ImportError:
+            if any(t.get("src") for t in tracks) and not args.covers:
+                print("  hint: `pip install mutagen` for reliable embedded-art extraction "
+                      "(needed for AIFF; ffmpeg alone misses those).", flush=True)
+        covers = [resolve_cover(t, n, L["art"], args, tmpdir, base_dir)
+                  for n, t in enumerate(tracks)]
+        # Per-track waveform colors: played region = the cover's average color,
+        # upcoming = grey, track-start ticks = a saturated version of the cover color.
+        palettes = [cover_palette(c) for c in covers]
 
     def make_bands(i):
+        if bokeh_mode:                              # uniform warm timeline (no art)
+            return build_bands(env, L["wave_w"], L["wave_h"], bar_w, gap, marks,
+                               played_color=THEME["wave_on"],
+                               upcoming_color=THEME["wave_off"], mark_color=THEME["wave_mark"])
         played, mark = palettes[i]
         return build_bands(env, L["wave_w"], L["wave_h"], bar_w, gap,
                            marks, played_color=played,
@@ -1253,21 +1734,40 @@ def main():
         "spec_col": np.array(THEME["spectrum"], np.uint8),
         "spec_dot": np.array(THEME["playhead"], np.uint8),
         "spec_peak": None, "spec_decay": max(0.02, 0.7 / fps),
-        "dotcol": np.array([130, 180, 230], np.float32),
-        "W": W, "H": H, "grid_sp": _sp, "grid_x0": 3,
+        "dotcol": np.array(THEME["dot"], np.float32),
+        "W": W, "H": H, "grid_sp": 8, "grid_x0": 3,
         "rng": np.random.default_rng(1234), "active": [], "ov_a": None,
         "fog_tex": fog_tex, "fog_pad": fog_pad, "fog_gain": None,
+        "plexus": plexus, "aurora": aurora,
+        "ripples": [], "rip_prev": 0.0, "rip_last": -999,
+        "rip_col": _saturate(THEME["dot"]),
     }
+    if bokeh_mode:
+        # timecode bottom-right (warm), above the slim timeline (concept layout)
+        _S = H / 1080.0
+        _tcw = int(440 * _S)
+        ctx["tc_box"] = (W - int(70 * _S) - _tcw, L["tc_y"], _tcw, int(46 * _S))
+        ctx["tc_anchor"] = "ra"
+        ctx["tc_fill"] = THEME["accent2"]
 
     def base_for_track(i):
-        """Composite track i's overlay over the static bg; set up its rain dots."""
+        """Prepare track i's overlay. For rain, also bake the static bg + overlay
+        and set up the rain dot grid. For bokeh, the bg is per-frame, so just keep
+        the overlay (rgb + alpha) for compositing later; returns None."""
         dim_rgba, ctx["bar_mask"], ctx["bright_col"] = make_bands(i)
-        ov_rgb, ov_a = render_base(cfg, tracks, i, W, H, L, covers, dim_rgba)
+        if bokeh_mode:
+            ov_rgb, ov_a = render_base_bokeh(cfg, tracks, i, W, H)
+        else:
+            ov_rgb, ov_a = render_base(cfg, tracks, i, W, H, L, covers, dim_rgba)
+        ctx["ov_a"] = ov_a
+        ctx["ov_rgb"] = ov_rgb
+        if bokeh_mode:
+            return None
         base = composite_over(static_base, ov_rgb, ov_a)
-        ctx["ov_a"] = ov_a                       # for masking snakes to visible bg
         ctx["fog_gain"] = (255 - ov_a).astype(np.int16)   # fog only over visible bg
-        vis = ov_a[grid_y, grid_x] < 40          # faint grid dots over visible bg
-        ctx["gv"] = (grid_x[vis], grid_y[vis], grid_faint[vis])
+        if rain_mode or ripple_mode:
+            vis = ov_a[grid_y, grid_x] < 40      # grid dots over visible bg only
+            ctx["gv"] = (grid_x[vis], grid_y[vis], grid_faint[vis])
         return base
 
     # ----------------------------------------------------------------- #
@@ -1280,16 +1780,39 @@ def main():
         os.makedirs(pdir, exist_ok=True)
         print(f"Rendering {len(tracks)} preview stills -> {pdir}", flush=True)
         for i in range(len(tracks)):
-            buf = base_for_track(i)
+            base = base_for_track(i)
             t_at = min(ends[i] - 0.01, starts[i] + 0.5)     # just into the track
-            if animate:
-                ctx["active"] = []
-                seed_rain(ctx, 70)                          # populated snapshot
-                paint_fog(buf, i * 40, ctx)
-                paint_rain(buf, 0, ctx)
+            if bokeh_mode:
+                buf = composite_over(bokeh_frame(bokeh, i * 13, fps),
+                                     ctx["ov_rgb"], ctx["ov_a"])
+            else:
+                buf = base
+                if animate:
+                    if aurora_mode:
+                        paint_aurora(buf, i * 7, ctx, np.full(16, 0.4, np.float32))
+                    elif ripple_mode:
+                        paint_fog(buf, i * 40, ctx)
+                        rr = np.random.default_rng(i + 1)
+                        ctx["ripples"] = []
+                        for _ in range(5):
+                            cx, cy = rr.uniform(0, W), rr.uniform(0, H)
+                            ctx["ripples"].append(dict(cx=cx, cy=cy,
+                                                       born=-int(rr.uniform(5, 45)),
+                                                       inten=1.0,
+                                                       maxr=_ring_maxr(cx, cy, W, H)))
+                        paint_ripple(buf, 0, ctx)
+                    elif plexus_mode:
+                        paint_fog(buf, i * 40, ctx)
+                        paint_plexus(buf, ctx, 0.55)
+                    else:
+                        paint_fog(buf, i * 40, ctx)
+                        ctx["active"] = []
+                        seed_rain(ctx, 70)                  # populated snapshot
+                        paint_rain(buf, 0, ctx)
             paint_waveform(buf, t_at, ctx)
             paint_timecode(buf, t_at, ctx)
-            paint_spectrum(buf, t_at, ctx)
+            if not bokeh_mode:
+                paint_spectrum(buf, t_at, ctx)
             label = safe_filename(f"{tracks[i].get('artist','')} - {tracks[i].get('title','')}".strip(" -"))
             out_png = os.path.join(pdir, f"{i+1:02d}_{label}.png")
             Image.fromarray(buf).save(out_png)
@@ -1333,7 +1856,7 @@ def main():
                "-shortest", out_path]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         totf = sum(n for _, _, n in segments)
-        if animate:
+        if animate and rain_mode:
             ctx["active"] = []
             seed_rain(ctx, 60)                     # pre-warm so frame 0 isn't empty
         nbins = ctx["spec"].shape[1] if ctx["spec"] is not None else 16
@@ -1356,18 +1879,34 @@ def main():
         for (i, seg_start, nfr) in segments:
             base = base_for_track(i)               # bg + overlay (static parts)
             for fnum in range(nfr):
-                buf = base.copy()
                 t = seg_start + fnum / fps
-                if animate:
-                    if ctx["spec"] is not None:
-                        sf = ctx["spec"][min(len(ctx["spec"]) - 1, max(0, int(t * fps)))]
-                    else:
-                        sf = np.full(nbins, 0.2, np.float32)
-                    advance_rain(ctx, g, sf)       # cull + spectrum-driven spawn
-                    paint_fog(buf, g, ctx)         # drifting blue aura ("blowing")
-                    paint_rain(buf, g, ctx)        # draw the snakes this frame
+                if bokeh_mode:
+                    buf = composite_over(bokeh_frame(bokeh, g, fps),
+                                         ctx["ov_rgb"], ctx["ov_a"])
+                else:
+                    buf = base.copy()
+                    if animate:
+                        if ctx["spec"] is not None:
+                            sf = ctx["spec"][min(len(ctx["spec"]) - 1, max(0, int(t * fps)))]
+                        else:
+                            sf = np.full(nbins, 0.2, np.float32)
+                        if aurora_mode:
+                            paint_aurora(buf, g, ctx, sf)
+                        elif ripple_mode:
+                            advance_ripples(ctx, g, sf)
+                            paint_fog(buf, g, ctx)
+                            paint_ripple(buf, g, ctx)
+                        elif plexus_mode:
+                            paint_fog(buf, g, ctx)     # drifting blue aura
+                            pulse = float(np.clip(0.2 + 1.8 * sf.mean(), 0, 1))
+                            paint_plexus(buf, ctx, pulse)
+                        else:
+                            paint_fog(buf, g, ctx)     # drifting blue aura ("blowing")
+                            advance_rain(ctx, g, sf)   # cull + spectrum-driven spawn
+                            paint_rain(buf, g, ctx)    # draw the snakes this frame
                 paint_waveform(buf, t, ctx)
-                paint_spectrum(buf, t, ctx)
+                if not bokeh_mode:
+                    paint_spectrum(buf, t, ctx)
                 paint_timecode(buf, t, ctx)
                 proc.stdin.write(buf.tobytes())
                 g += 1
