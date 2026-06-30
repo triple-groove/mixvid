@@ -1080,8 +1080,8 @@ def clean_track_title(title, performer, do_clean):
         return title.strip(), artist.strip()
     # strip a trailing YouTube id  "...-bXLC5a7GgR4"
     title = re.sub(r"-[A-Za-z0-9_-]{11}$", "", title).strip()
-    # drop a redundant "(Original Mix)" tag wherever it appears
-    title = re.sub(r"\s*\(\s*original mix\s*\)", "", title, flags=re.I).strip()
+    # drop a redundant "(Original Mix)" / "(Extended Mix)" tag wherever it appears
+    title = re.sub(r"\s*\(\s*(?:original|extended)\s+mix\s*\)", "", title, flags=re.I).strip()
     # if no performer but "Artist - Title" is embedded in the title, split it
     if not artist and " - " in title:
         artist, title = title.split(" - ", 1)
