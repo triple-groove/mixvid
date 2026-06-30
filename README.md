@@ -162,8 +162,8 @@ The ETA settles after ~10–20 s of frames (it averages over all frames so far).
 --crf 18            quality: x264 CRF or NVENC CQ (lower = better/bigger)
 --encoder auto      video encoder: auto (NVENC GPU if available) | nvenc | x264
 --upscale WxH       lanczos-upscale output (e.g. 3840x2160 for a true-4K file)
---theme rain        background theme: rain | plexus | aurora | ripple | bokeh
---theme-color C     palette: blue | warm | pink (default: blue, or warm for bokeh)
+--theme rain        background theme: rain | plexus | aurora | ripple | comets | bokeh
+--theme-color C     palette: blue | warm | pink | auto (default: blue, or warm for bokeh)
 --title / --subtitle / --date / --audio    override cue/JSON display fields
 --covers DIR        manual cover folder (01.jpg, 02.png, ...)
 --cover N=PATH      use a specific image for track N (1-based), repeatable
@@ -188,13 +188,27 @@ compose (e.g. `--theme ripple --theme-color pink`).
 | `plexus` | drifting constellation of linked nodes, pulses with audio | full |
 | `aurora` | flowing northern-lights curtains (bass swells, highs shimmer) | full |
 | `ripple` | dot-grid sonar rings fired on the kick, expanding off-screen | full |
+| `comets` | dot-grid comets falling in one direction, bright head + thin tail | full |
 | `bokeh` | warm out-of-focus orbs | minimal (no art/tracklist/spectrogram) |
 
-`--theme-color`: `blue` (default), `warm` (default for bokeh), `pink`. Palettes
-live in the `PALETTES` dict near the top of `mixvid.py` (each defines the text
-accents, waveform, spectrogram, grid `dot`, and `fog` colors). Per-background
-tuning lives in the `RAIN` / `PLEXUS` / `AURORA_LAYERS` / `RIPPLE` / bokeh
-constants. `--static-bg` skips the animation for a fast render.
+`--theme-color`: `blue` (default), `warm` (default for bokeh), `pink`, or `auto`.
+The fixed palettes live in the `PALETTES` dict near the top of `mixvid.py` (each
+defines the text accents, waveform, spectrogram, grid `dot`, and `fog` colors).
+
+**`--theme-color auto`** derives a fresh palette from *each track's album art* —
+like generating a terminal theme from the cover. It quantizes the cover to a few
+dominant colors, picks a dark background from the dominant hue plus vibrant
+accents, and applies them to the background, text accents, waveform, dots, and
+fog. The whole scheme changes every track to match the art (not available for
+`bokeh`). Per-background tuning lives in the `RAIN` / `PLEXUS` / `AURORA_LAYERS`
+/ `RIPPLE` / `COMET` / bokeh constants. `--static-bg` skips the animation for a
+fast render.
+
+### Non-Latin track names (CJK)
+Track titles/artists with Japanese, Chinese, or Korean characters render via a
+glyph fallback (Droid Sans Fallback / Noto CJK if installed) — each string is
+split into Latin and CJK runs and drawn with a face that covers each, so mixed
+names like `マクロス MACROSS 82-99` come out right instead of as tofu boxes.
 
 ## Track cleaning
 Cue parsing (unless `--no-clean-titles`) repairs mojibake, splits embedded

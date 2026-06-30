@@ -133,6 +133,19 @@ if not os.path.exists(FONT_SERIF_BOLD):
 if not os.path.exists(FONT_SERIF_ITALIC):
     FONT_SERIF_ITALIC = FONT_SERIF
 
+# Glyph fallback for scripts the Latin faces lack (CJK: Japanese/Chinese/Korean).
+# Pillow has no automatic per-glyph fallback, so text() splits a string into
+# Latin/CJK runs and draws the CJK runs with this face (see _runs / text()).
+FONT_FALLBACK = "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
+for _fb in (FONT_FALLBACK,
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"):
+    if os.path.exists(_fb):
+        FONT_FALLBACK = _fb
+        break
+else:
+    FONT_FALLBACK = None
+
 
 # --------------------------------------------------------------------------- #
 #  Small helpers
@@ -247,12 +260,75 @@ def resolve_tools(args):
     FFMPEG, FFPROBE = ffmpeg, ffprobe
 
 
+_font_cache = {}
+
+
 def font(path, size):
-    return ImageFont.truetype(path, size)
+    key = (path, int(size))
+    f = _font_cache.get(key)
+    if f is None:
+        f = ImageFont.truetype(path, int(size))
+        _font_cache[key] = f
+    return f
+
+
+def _needs_fallback(ch):
+    """True for codepoints the Latin faces don't cover (CJK / fullwidth forms)."""
+    o = ord(ch)
+    return (0x3000 <= o <= 0x9FFF       # CJK symbols, Hiragana, Katakana, ideographs
+            or 0xAC00 <= o <= 0xD7A3    # Hangul syllables
+            or 0xF900 <= o <= 0xFAFF    # CJK compatibility ideographs
+            or 0xFF00 <= o <= 0xFFEF    # halfwidth / fullwidth forms
+            or 0x20000 <= o <= 0x2FA1F) # CJK extension planes
+
+
+def _runs(s):
+    """Split s into consecutive (segment, use_fallback) runs by glyph coverage."""
+    out, cur, curfb = [], [], None
+    for ch in s:
+        fb = _needs_fallback(ch)
+        if curfb is None or fb == curfb:
+            cur.append(ch)
+            curfb = fb
+        else:
+            out.append(("".join(cur), curfb))
+            cur, curfb = [ch], fb
+    if cur:
+        out.append(("".join(cur), curfb))
+    return out
+
+
+def _run_font(fnt, fb):
+    """The face to draw a run with: the fallback (sized to match) for CJK runs."""
+    if not fb or not FONT_FALLBACK:
+        return fnt
+    return font(FONT_FALLBACK, getattr(fnt, "size", 26))
+
+
+def text_len(draw, s, fnt):
+    """draw.textlength, but measuring CJK runs with the fallback face."""
+    if not FONT_FALLBACK or not any(_needs_fallback(c) for c in s):
+        return draw.textlength(s, font=fnt)
+    return sum(draw.textlength(seg, font=_run_font(fnt, fb)) for seg, fb in _runs(s))
 
 
 def text(draw, xy, s, fnt, fill, anchor="la"):
-    draw.text(xy, s, font=fnt, fill=fill, anchor=anchor)
+    if not FONT_FALLBACK or not any(_needs_fallback(c) for c in s):
+        draw.text(xy, s, font=fnt, fill=fill, anchor=anchor)
+        return
+    x, y = xy
+    hanch = anchor[0] if anchor else "l"
+    vanch = anchor[1] if len(anchor) > 1 else "a"
+    runs = _runs(s)
+    total = sum(draw.textlength(seg, font=_run_font(fnt, fb)) for seg, fb in runs)
+    if hanch == "r":
+        x -= total
+    elif hanch == "m":
+        x -= total / 2
+    for seg, fb in runs:                                # draw each run left-anchored
+        f = _run_font(fnt, fb)
+        draw.text((x, y), seg, font=f, fill=fill, anchor="l" + vanch)
+        x += draw.textlength(seg, font=f)
 
 
 def fit_text(draw, s, fnt_path, size, max_w):
@@ -260,7 +336,7 @@ def fit_text(draw, s, fnt_path, size, max_w):
     sz = size
     while sz > size * 0.6:
         f = font(fnt_path, sz)
-        if draw.textlength(s, font=f) <= max_w:
+        if text_len(draw, s, f) <= max_w:
             return f
         sz -= 2
     return font(fnt_path, sz)
@@ -275,16 +351,16 @@ def uniform_fit(draw, strings, fnt_path, size, max_w, floor=30):
     sz = size
     while sz > floor:
         f = font(fnt_path, sz)
-        if all(draw.textlength(s, font=f) <= max_w for s in strings):
+        if all(text_len(draw, s, f) <= max_w for s in strings):
             return sz
         sz -= 2
     return floor
 
 
 def ellipsize(draw, s, fnt, max_w):
-    if draw.textlength(s, font=fnt) <= max_w:
+    if text_len(draw, s, fnt) <= max_w:
         return s
-    while s and draw.textlength(s + "\u2026", font=fnt) > max_w:
+    while s and text_len(draw, s + "\u2026", fnt) > max_w:
         s = s[:-1]
     return s + "\u2026"
 
@@ -715,6 +791,92 @@ def paint_ripple(buf, g, ctx):
     _add_dots(buf, gyv, gxv, add)
 
 
+# --------------------------------------------------------------------------- #
+#  Comets background (the "comets" theme): like rain but every streak falls in
+#  one fixed direction (down and to the right) with a bright, slightly bigger
+#  head and a thin dim dot tail. Spawn rate/length follow the spectrum. Drawn on
+#  the same dot grid (snapped + masked) as the rain.
+# --------------------------------------------------------------------------- #
+COMET = dict(angle=45.0, jitter=0.0, speed=(8.0, 15.0),
+             tail_bass=540.0, tail_treble=170.0, sample=14.0,
+             gain=0.45, floor=0.05, maxc=140, headbright=1.4, tailbright=0.34)
+
+
+def _comet_spawn(ctx, power, frac):
+    """One comet entering from the top or left edge, heading down-and-right. Tail
+    length scales with power (bass bins longer than treble)."""
+    rng, W, H = ctx["rng"], ctx["W"], ctx["H"]
+    p = min(max(power, 0.0), 1.0)
+    a = np.deg2rad(COMET["angle"] + rng.uniform(-COMET["jitter"], COMET["jitter"]))
+    L = (COMET["tail_bass"] * (1 - frac) + COMET["tail_treble"] * frac) \
+        * (0.5 + 0.9 * p) * rng.uniform(0.85, 1.15)
+    sp = rng.uniform(*COMET["speed"])
+    if rng.random() < 0.62:                          # enter from the top edge
+        x, y = rng.uniform(-0.10 * W, W), rng.uniform(-0.18 * H, 0.0)
+    else:                                            # enter from the left edge
+        x, y = rng.uniform(-0.15 * W, 0.0), rng.uniform(0.0, 0.80 * H)
+    ctx["comets"].append(dict(x=x, y=y, ux=np.cos(a), uy=np.sin(a), sp=sp, L=L))
+
+
+def advance_comets(ctx, g, sf):
+    """Move + cull comets, then spawn new ones from the spectrum frame."""
+    W, H = ctx["W"], ctx["H"]
+    alive = []
+    for c in ctx["comets"]:
+        c["x"] += c["ux"] * c["sp"]
+        c["y"] += c["uy"] * c["sp"]
+        if c["x"] - c["ux"] * c["L"] <= W + 4 and c["y"] - c["uy"] * c["L"] <= H + 4:
+            alive.append(c)                          # keep until the tail end exits
+    ctx["comets"] = alive
+    rng, nb = ctx["rng"], len(sf)
+    for bdx in range(nb):
+        pw = float(sf[bdx])
+        frac = bdx / (nb - 1) if nb > 1 else 0.0     # 0 = bass, 1 = treble
+        rate = max(pw, COMET["floor"]) * COMET["gain"]
+        nsp = int(rate) + (1 if rng.random() < (rate - int(rate)) else 0)
+        for _ in range(nsp):
+            if len(ctx["comets"]) >= COMET["maxc"]:
+                break
+            _comet_spawn(ctx, pw, frac)
+
+
+def paint_comets(buf, g, ctx):
+    """Faint dot grid + every comet (grid-snapped, masked behind the UI): a thin
+    dim tail fading back from a bright, enlarged head."""
+    gxv, gyv, faintv = ctx["gv"]
+    if gxv.size:                                     # faint always-on dot grid
+        _add_dots(buf, gyv, gxv, (ctx["dotcol"][None, :] * faintv[:, None]).astype(np.int16))
+    sp_g, x0 = ctx["grid_sp"], ctx["grid_x0"]
+    ova, W, H = ctx["ov_a"], ctx["W"], ctx["H"]
+    col = ctx["dotcol"]
+    step = COMET["sample"]
+    head_ys, head_xs = [], []
+    for c in ctx["comets"]:
+        t = np.arange(0.0, c["L"], step)
+        gx = (np.round((c["x"] - c["ux"] * t - x0) / sp_g) * sp_g + x0).astype(np.int32)
+        gy = (np.round((c["y"] - c["uy"] * t - x0) / sp_g) * sp_g + x0).astype(np.int32)
+        on = (gx >= x0) & (gx < W - 2) & (gy >= x0) & (gy < H - 2)
+        if not on.any():
+            continue
+        gx, gy, t = gx[on], gy[on], t[on]
+        vis = ova[gy, gx] < 40
+        if not vis.any():
+            continue
+        gx, gy, t = gx[vis], gy[vis], t[vis]
+        br = np.where(t < step * 1.5, COMET["headbright"],
+                      COMET["tailbright"] * np.clip(1.0 - t / c["L"], 0.0, 1.0))
+        _add_dots(buf, gy, gx, (col[None, :] * br[:, None]).astype(np.int16))
+        hm = t < step * 0.5                          # the head point
+        if hm.any():
+            head_ys.append(gy[hm]); head_xs.append(gx[hm])
+    if head_ys:                                      # enlarge + brighten the heads
+        hy, hx = np.concatenate(head_ys), np.concatenate(head_xs)
+        hb = (col * COMET["headbright"]).astype(np.int16)
+        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)):
+            v = buf[hy + oy, hx + ox].astype(np.int16) + hb
+            buf[hy + oy, hx + ox] = np.clip(v, 0, 255).astype(np.uint8)
+
+
 def make_fog_tex(W, H, pad=170, tint=(30, 70, 116)):
     """Half-resolution blurred 'fog' texture (tinted to the palette), larger than
     the half-frame by `pad` on each axis so it can be slowly panned (the aura)."""
@@ -1037,6 +1199,58 @@ def cover_palette(cover):
     mark   = colorsys.hsv_to_rgb(h, min(1.0, s * 2.0 + 0.45), max(v, 0.80))
     to8 = lambda c: tuple(int(round(x * 255)) for x in c)
     return to8(played), to8(mark)
+
+
+def palette_from_cover(cover):
+    """Build a full theme palette (a la a terminal color scheme) from 3-4 colors
+    pulled out of a cover: a dark background tinted by the dominant color, and
+    bright readable accents from the most vibrant colors. Used by
+    --theme-color auto, so the whole palette changes per track."""
+    im = cover.convert("RGB").resize((48, 48))
+    try:
+        q = im.quantize(colors=6, method=Image.FASTOCTREE)
+    except Exception:
+        q = im.quantize(colors=6)
+    pal = q.getpalette() or []
+    items = []
+    for cnt, idx in (q.getcolors() or []):
+        r, g, b = pal[idx * 3:idx * 3 + 3]
+        hh, ss, vv = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        items.append(dict(cnt=cnt, h=hh, s=ss, v=vv))
+    if not items:
+        return PALETTES["blue"]
+
+    def mk(h, s, v):
+        r, g, b = colorsys.hsv_to_rgb(h, min(1.0, max(0.0, s)), min(1.0, max(0.0, v)))
+        return (int(r * 255), int(g * 255), int(b * 255))
+
+    dom = max(items, key=lambda x: x["cnt"])                    # background hue
+    vibe = sorted([x for x in items if x["s"] > 0.20 and x["v"] > 0.22],
+                  key=lambda x: x["s"] * x["v"] * (x["cnt"] ** 0.3), reverse=True)
+    if not vibe:
+        vibe = [dom]
+    a1 = vibe[0]
+    a2 = vibe[1] if len(vibe) > 1 else dict(h=(a1["h"] + 0.08) % 1.0, s=a1["s"], v=a1["v"])
+    bgs = min(0.55, dom["s"] * 0.8 + 0.08)                      # keep bg muted
+    accent  = mk(a1["h"], max(0.55, a1["s"]), max(0.80, a1["v"]))
+    accent2 = mk(a2["h"], max(0.55, a2["s"]), max(0.90, a2["v"]))
+    return {
+        "bg_top":     mk(dom["h"], bgs, 0.13),
+        "bg_bottom":  mk(dom["h"], bgs, 0.04),
+        "panel":      mk(dom["h"], bgs, 0.05),
+        "white":      mk(dom["h"], 0.05, 0.96),                 # near-white, faint tint
+        "gray":       mk(dom["h"], 0.14, 0.64),
+        "dim_gray":   mk(dom["h"], 0.14, 0.44),
+        "accent":     accent,
+        "accent2":    accent2,
+        "wave_off":   mk(dom["h"], 0.16, 0.42),
+        "wave_on":    mk(a1["h"], max(0.40, a1["s"] * 0.7), 0.92),
+        "wave_mark":  accent2,
+        "playhead":   accent2,
+        "spectrum":   accent2,
+        "dot":        accent,
+        "fog":        mk(a1["h"], max(0.40, a1["s"]), 0.30),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -1531,15 +1745,19 @@ def main():
                          "start, concatenated, with matching audio")
     ap.add_argument("--static-bg", action="store_true",
                     help="use a still background (faster) instead of the animated rain effect")
-    ap.add_argument("--theme", choices=("rain", "plexus", "aurora", "ripple", "bokeh"),
+    ap.add_argument("--theme",
+                    choices=("rain", "plexus", "aurora", "ripple", "comets", "bokeh"),
                     default="rain",
                     help="visual theme: 'rain' (cool rain-on-window, default), "
                          "'plexus' (drifting constellation), 'aurora' (flowing "
                          "northern lights), 'ripple' (dot-grid sonar rings on the "
-                         "beat) — all keep the default layout; or 'bokeh' (warm "
-                         "lounge, minimal layout)")
-    ap.add_argument("--theme-color", choices=tuple(PALETTES), default=None,
-                    help="color palette override (default: blue for rain, warm for bokeh)")
+                         "beat), 'comets' (down-right streaks with bright heads + "
+                         "thin tails) — all keep the default layout; or 'bokeh' "
+                         "(warm lounge, minimal layout)")
+    ap.add_argument("--theme-color", choices=tuple(PALETTES) + ("auto",), default=None,
+                    help="color palette: blue | warm | pink, or 'auto' to derive the "
+                         "whole palette from each track's cover art (changes per track). "
+                         "Default: blue (warm for bokeh)")
     ap.add_argument("--dry-run", action="store_true",
                     help="parse and print the tracklist, then exit (no rendering)")
     ap.add_argument("--missing-art", action="store_true",
@@ -1556,8 +1774,14 @@ def main():
     # Resolve theme + palette before anything renders: point the active THEME at
     # the chosen palette, and (for bokeh) repoint the font names to the serifs.
     global THEME, FONT_REG, FONT_BOLD, FONT_THIN
-    color = args.theme_color or ("warm" if args.theme == "bokeh" else "blue")
-    THEME = PALETTES[color]
+    # 'auto' derives the palette per-track from cover art (handled in base_for_track);
+    # bokeh has no per-track art, so auto falls back to a fixed palette there.
+    auto_palette = (args.theme_color == "auto") and args.theme != "bokeh"
+    if args.theme_color in (None, "auto"):
+        base_color = "warm" if args.theme == "bokeh" else "blue"
+    else:
+        base_color = args.theme_color
+    THEME = PALETTES[base_color]
     if args.theme == "bokeh":
         FONT_REG, FONT_BOLD, FONT_THIN = FONT_SERIF, FONT_SERIF_BOLD, FONT_SERIF
 
@@ -1659,6 +1883,7 @@ def main():
     plexus_mode = args.theme == "plexus"
     aurora_mode = args.theme == "aurora"
     ripple_mode = args.theme == "ripple"
+    comets_mode = args.theme == "comets"
     rain_mode   = args.theme == "rain"
     animate = not args.static_bg
     marks = [s / total for s in starts] if total else []
@@ -1679,8 +1904,8 @@ def main():
             plexus = make_plexus(W, H)
         if aurora_mode:
             aurora = make_aurora(W, H)
-        if rain_mode or ripple_mode:
-            # dot grid: rain snaps snakes to it; ripple lights it up in rings
+        if rain_mode or ripple_mode or comets_mode:
+            # dot grid: rain/comets snap streaks to it; ripple lights it in rings
             _rng = np.random.default_rng(7)
             _sp = 8
             _gx, _gy = np.meshgrid(np.arange(3, W - 2, _sp), np.arange(3, H - 2, _sp))
@@ -1740,7 +1965,7 @@ def main():
         "fog_tex": fog_tex, "fog_pad": fog_pad, "fog_gain": None,
         "plexus": plexus, "aurora": aurora,
         "ripples": [], "rip_prev": 0.0, "rip_last": -999,
-        "rip_col": _saturate(THEME["dot"]),
+        "rip_col": _saturate(THEME["dot"]), "comets": [],
     }
     if bokeh_mode:
         # timecode bottom-right (warm), above the slim timeline (concept layout)
@@ -1750,10 +1975,26 @@ def main():
         ctx["tc_anchor"] = "ra"
         ctx["tc_fill"] = THEME["accent2"]
 
+    uses_fog = rain_mode or plexus_mode or ripple_mode or comets_mode
+
     def base_for_track(i):
         """Prepare track i's overlay. For rain, also bake the static bg + overlay
         and set up the rain dot grid. For bokeh, the bg is per-frame, so just keep
         the overlay (rgb + alpha) for compositing later; returns None."""
+        global THEME
+        bg = static_base
+        if auto_palette and covers[i] is not None:
+            # rebuild the whole palette from this cover, then refresh everything
+            # that caches a color (overlay/bands read THEME live below).
+            THEME = palette_from_cover(covers[i])
+            ctx["ph_col"] = np.array(THEME["accent2"], np.uint8)
+            ctx["spec_col"] = np.array(THEME["spectrum"], np.uint8)
+            ctx["spec_dot"] = np.array(THEME["playhead"], np.uint8)
+            ctx["dotcol"] = np.array(THEME["dot"], np.float32)
+            ctx["rip_col"] = _saturate(THEME["dot"])
+            bg = make_bg_base(W, H, blobs=False)
+            if uses_fog:
+                ctx["fog_tex"], ctx["fog_pad"] = make_fog_tex(W, H, tint=THEME["fog"])
         dim_rgba, ctx["bar_mask"], ctx["bright_col"] = make_bands(i)
         if bokeh_mode:
             ov_rgb, ov_a = render_base_bokeh(cfg, tracks, i, W, H)
@@ -1763,9 +2004,9 @@ def main():
         ctx["ov_rgb"] = ov_rgb
         if bokeh_mode:
             return None
-        base = composite_over(static_base, ov_rgb, ov_a)
+        base = composite_over(bg, ov_rgb, ov_a)
         ctx["fog_gain"] = (255 - ov_a).astype(np.int16)   # fog only over visible bg
-        if rain_mode or ripple_mode:
+        if rain_mode or ripple_mode or comets_mode:
             vis = ov_a[grid_y, grid_x] < 40      # grid dots over visible bg only
             ctx["gv"] = (grid_x[vis], grid_y[vis], grid_faint[vis])
         return base
@@ -1801,6 +2042,15 @@ def main():
                                                        inten=1.0,
                                                        maxr=_ring_maxr(cx, cy, W, H)))
                         paint_ripple(buf, 0, ctx)
+                    elif comets_mode:
+                        ctx["comets"] = []
+                        for _ in range(50):
+                            _comet_spawn(ctx, 0.6, ctx["rng"].random())
+                        for c in ctx["comets"]:      # scatter heads across the frame
+                            adv = ctx["rng"].uniform(0.2, 1.0) * c["L"]
+                            c["x"] += c["ux"] * adv; c["y"] += c["uy"] * adv
+                        paint_fog(buf, i * 40, ctx)
+                        paint_comets(buf, 0, ctx)
                     elif plexus_mode:
                         paint_fog(buf, i * 40, ctx)
                         paint_plexus(buf, ctx, 0.55)
@@ -1859,6 +2109,13 @@ def main():
         if animate and rain_mode:
             ctx["active"] = []
             seed_rain(ctx, 60)                     # pre-warm so frame 0 isn't empty
+        if animate and comets_mode:
+            ctx["comets"] = []
+            for _ in range(70):                    # pre-warm: scatter comets in-frame
+                _comet_spawn(ctx, 0.6, ctx["rng"].random())
+            for c in ctx["comets"]:
+                adv = ctx["rng"].uniform(0.0, 1.0) * (c["L"] + ctx["H"])
+                c["x"] += c["ux"] * adv; c["y"] += c["uy"] * adv
         nbins = ctx["spec"].shape[1] if ctx["spec"] is not None else 16
         g = done = 0
         t0 = time.time()
@@ -1896,6 +2153,10 @@ def main():
                             advance_ripples(ctx, g, sf)
                             paint_fog(buf, g, ctx)
                             paint_ripple(buf, g, ctx)
+                        elif comets_mode:
+                            advance_comets(ctx, g, sf)
+                            paint_fog(buf, g, ctx)
+                            paint_comets(buf, g, ctx)
                         elif plexus_mode:
                             paint_fog(buf, g, ctx)     # drifting blue aura
                             pulse = float(np.clip(0.2 + 1.8 * sf.mean(), 0, 1))
