@@ -902,6 +902,147 @@ def paint_comets(buf, g, ctx):
             buf[hy + oy, hx + ox] = np.clip(v, 0, 255).astype(np.uint8)
 
 
+# --------------------------------------------------------------------------- #
+#  Starfall background (the "starfall" theme): little 5-pointed stars raining
+#  straight down, each drawn as grid-snapped dots along its outline (the same
+#  dotted look as the rain snakes). Stars spawn above the top edge, drift down
+#  with a slow spin, and are culled once they clear the bottom. Spawn rate/size
+#  follow the spectrum energy. Shares the rain dot grid + fog aura.
+# --------------------------------------------------------------------------- #
+STAR = dict(points=7, inner=0.30, pts_choices=(6, 7, 8),   # spiky "burst", varied
+            speed=(11.0, 30.0), angle=(30, 58), spin=(-0.06, 0.06),
+            r_min=11, r_max=32, sample=11.0,
+            gain=1.7, floor=0.08, max_stars=150, bright=0.75,
+            # three dotted trails streaming behind each star, fading with distance
+            trail_n=3, trail_len=4.0, trail_spread=0.55, trail_bright=0.7)
+
+
+def _star_unit(npts, inner):
+    """Unit 5-pointed star: 2*npts vertices alternating outer (r=1) / inner
+    (r=`inner`), first point straight up. Rotated/scaled/translated per star."""
+    verts = []
+    for k in range(2 * npts):
+        ang = -np.pi / 2 + k * np.pi / npts
+        rad = 1.0 if k % 2 == 0 else inner
+        verts.append((np.cos(ang) * rad, np.sin(ang) * rad))
+    return np.array(verts, np.float32)
+
+
+def _star_outline_pts(cx, cy, r, rot, unit, step):
+    """Sample points along the star's outline at ~`step` px spacing (world space)."""
+    c, s = np.cos(rot), np.sin(rot)
+    Rt = np.array([[c, s], [-s, c]], np.float32)         # row-vector rotation
+    v = (unit @ Rt) * r + np.array([cx, cy], np.float32)
+    xs, ys = [], []
+    n = len(v)
+    for k in range(n):
+        p0, p1 = v[k], v[(k + 1) % n]
+        seglen = float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+        m = max(1, int(seglen / step))
+        t = np.linspace(0.0, 1.0, m, endpoint=False)
+        xs.append(p0[0] + (p1[0] - p0[0]) * t)
+        ys.append(p0[1] + (p1[1] - p0[1]) * t)
+    return np.concatenate(xs), np.concatenate(ys)
+
+
+def _star_spawn(ctx, power):
+    """One star entering from the top or left edge, falling down-and-to-the-right
+    (like the rain) with a little spin. Size scales with `power` (louder -> bigger);
+    each star gets a random spike count for a bursty, varied field."""
+    rng, W, H = ctx["rng"], ctx["W"], ctx["H"]
+    p = min(max(power, 0.0), 1.0)
+    r = (STAR["r_min"] + (STAR["r_max"] - STAR["r_min"]) * (0.30 + 0.70 * p)) \
+        * rng.uniform(0.80, 1.15)
+    a = np.deg2rad(rng.uniform(*STAR["angle"]))      # down-right, measured from +x
+    sp = rng.uniform(*STAR["speed"])
+    npts = int(rng.integers(STAR["pts_choices"][0], STAR["pts_choices"][-1] + 1))
+    if rng.random() < 0.66:                          # enter from the top edge
+        x, y = rng.uniform(-0.10 * W, W), rng.uniform(-0.20 * H, -r)
+    else:                                            # enter from the left edge
+        x, y = rng.uniform(-0.15 * W, -r), rng.uniform(0.0, 0.75 * H)
+    ctx["stars"].append(dict(
+        x=x, y=y, r=r, rot=rng.uniform(0, 2 * np.pi),
+        spin=rng.uniform(*STAR["spin"]),
+        vx=sp * np.cos(a), vy=sp * np.sin(a),
+        unit=_star_unit(npts, STAR["inner"])))
+
+
+def seed_stars(ctx, n):
+    """Pre-warm: scatter stars across the whole frame so frame 0 isn't empty."""
+    rng, W, H = ctx["rng"], ctx["W"], ctx["H"]
+    for _ in range(n):
+        _star_spawn(ctx, rng.random())
+        st = ctx["stars"][-1]
+        st["x"] = rng.uniform(0, W)                  # already-falling snapshot
+        st["y"] = rng.uniform(0, H)
+
+
+def advance_stars(ctx, g, sf):
+    """Fall + spin + cull stars, then spawn new ones from the spectrum energy."""
+    W, H, rng = ctx["W"], ctx["H"], ctx["rng"]
+    alive = []
+    for st in ctx["stars"]:
+        st["x"] += st["vx"]
+        st["y"] += st["vy"]
+        st["rot"] += st["spin"]
+        if st["y"] - st["r"] <= H + 4 and st["x"] - st["r"] <= W + 4:
+            alive.append(st)                         # keep until it clears the frame
+    ctx["stars"] = alive
+    power = float(sf.mean()) if len(sf) else 0.0
+    rate = max(power, STAR["floor"]) * STAR["gain"]
+    nsp = int(rate) + (1 if rng.random() < (rate - int(rate)) else 0)
+    for _ in range(nsp):
+        if len(ctx["stars"]) >= STAR["max_stars"]:
+            break
+        _star_spawn(ctx, power)
+
+
+def paint_stars(buf, g, ctx):
+    """Faint dot grid + every star's outline (grid-snapped, masked behind the UI),
+    drawn as dots for the same texture as the rain."""
+    gxv, gyv, faintv = ctx["gv"]
+    if gxv.size:                                     # faint always-on dot grid
+        _add_dots(buf, gyv, gxv, (ctx["dotcol"][None, :] * faintv[:, None]).astype(np.int16))
+    sp_g, x0 = ctx["grid_sp"], ctx["grid_x0"]
+    ova, W, H = ctx["ov_a"], ctx["W"], ctx["H"]
+    col, unit, step = ctx["dotcol"], ctx["star_unit"], STAR["sample"]
+
+    def _dots(px, py, bright):
+        """Grid-snap, mask behind the UI, and add dots. `bright` is a scalar or a
+        per-point array (for the fading trails)."""
+        gx = (np.round((px - x0) / sp_g) * sp_g + x0).astype(np.int32)
+        gy = (np.round((py - x0) / sp_g) * sp_g + x0).astype(np.int32)
+        on = (gx >= x0) & (gx < W - 2) & (gy >= x0) & (gy < H - 2)
+        if not on.any():
+            return
+        gx, gy = gx[on], gy[on]
+        bv = bright[on] if np.ndim(bright) else np.full(gx.size, bright, np.float32)
+        vis = ova[gy, gx] < 40                       # only over visible background
+        if not vis.any():
+            return
+        gx, gy, bv = gx[vis], gy[vis], bv[vis]
+        _add_dots(buf, gy, gx, (col[None, :] * bv[:, None]).astype(np.int16))
+
+    for st in ctx["stars"]:
+        # three dotted trails behind the star (opposite its motion), fading out
+        vx, vy = st["vx"], st["vy"]
+        vmag = (vx * vx + vy * vy) ** 0.5 or 1.0
+        ux, uy = -vx / vmag, -vy / vmag              # backward (trailing) direction
+        perpx, perpy = -uy, ux                       # across the motion
+        L = st["r"] * STAR["trail_len"]
+        t = np.arange(0.0, L, step)
+        fade = np.clip(1.0 - t / L, 0.0, 1.0) * STAR["trail_bright"]
+        n = STAR["trail_n"]
+        for li in range(n):
+            off = (li - (n - 1) / 2.0) * STAR["trail_spread"] * st["r"]
+            _dots(st["x"] + ux * t + perpx * off,
+                  st["y"] + uy * t + perpy * off, fade)
+        # the star outline itself, on top of its trails
+        xs, ys = _star_outline_pts(st["x"], st["y"], st["r"], st["rot"],
+                                   st.get("unit", unit), step)
+        _dots(xs, ys, STAR["bright"])
+
+
 def make_fog_tex(W, H, pad=170, tint=(30, 70, 116)):
     """Half-resolution blurred 'fog' texture (tinted to the palette), larger than
     the half-frame by `pad` on each axis so it can be slowly panned (the aura)."""
@@ -1772,14 +1913,15 @@ def main():
                     help="use a still background (faster) instead of the animated rain effect")
     ap.add_argument("--theme",
                     choices=("rain", "plexus", "aurora", "ripple", "tririp",
-                             "comets", "bokeh"),
+                             "comets", "starfall", "bokeh"),
                     default="rain",
                     help="visual theme: 'rain' (cool rain-on-window, default), "
                          "'plexus' (drifting constellation), 'aurora' (flowing "
                          "northern lights), 'ripple' (dot-grid sonar rings on the "
                          "beat), 'tririp' (same, but triangle-shaped ripples), "
                          "'comets' (down-right streaks with bright heads + "
-                         "thin tails) — all keep the default layout; or 'bokeh' "
+                         "thin tails), 'starfall' (5-pointed stars raining down, "
+                         "dotted) — all keep the default layout; or 'bokeh' "
                          "(warm lounge, minimal layout)")
     ap.add_argument("--theme-color", choices=tuple(PALETTES) + ("auto",), default=None,
                     help="color palette: blue | warm | pink, or 'auto' to derive the "
@@ -1911,6 +2053,7 @@ def main():
     aurora_mode = args.theme == "aurora"
     ripple_mode = args.theme in ("ripple", "tririp")   # tririp = triangular ripples
     comets_mode = args.theme == "comets"
+    starfall_mode = args.theme == "starfall"
     rain_mode   = args.theme == "rain"
     animate = not args.static_bg
     marks = [s / total for s in starts] if total else []
@@ -1931,8 +2074,9 @@ def main():
             plexus = make_plexus(W, H)
         if aurora_mode:
             aurora = make_aurora(W, H)
-        if rain_mode or ripple_mode or comets_mode:
-            # dot grid: rain/comets snap streaks to it; ripple lights it in rings
+        if rain_mode or ripple_mode or comets_mode or starfall_mode:
+            # dot grid: rain/comets/starfall snap streaks/outlines to it; ripple
+            # lights it in rings
             _rng = np.random.default_rng(7)
             _sp = 8
             _gx, _gy = np.meshgrid(np.arange(3, W - 2, _sp), np.arange(3, H - 2, _sp))
@@ -1994,6 +2138,7 @@ def main():
         "ripples": [], "rip_prev": 0.0, "rip_last": -999,
         "rip_col": _saturate(THEME["dot"]), "comets": [],
         "rip_shape": "triangle" if args.theme == "tririp" else "circle",
+        "stars": [], "star_unit": _star_unit(STAR["points"], STAR["inner"]),
     }
     if bokeh_mode:
         # timecode bottom-right (warm), above the slim timeline (concept layout)
@@ -2003,7 +2148,7 @@ def main():
         ctx["tc_anchor"] = "ra"
         ctx["tc_fill"] = THEME["accent2"]
 
-    uses_fog = rain_mode or plexus_mode or ripple_mode or comets_mode
+    uses_fog = rain_mode or plexus_mode or ripple_mode or comets_mode or starfall_mode
 
     def base_for_track(i):
         """Prepare track i's overlay. For rain, also bake the static bg + overlay
@@ -2034,7 +2179,7 @@ def main():
             return None
         base = composite_over(bg, ov_rgb, ov_a)
         ctx["fog_gain"] = (255 - ov_a).astype(np.int16)   # fog only over visible bg
-        if rain_mode or ripple_mode or comets_mode:
+        if rain_mode or ripple_mode or comets_mode or starfall_mode:
             vis = ov_a[grid_y, grid_x] < 40      # grid dots over visible bg only
             ctx["gv"] = (grid_x[vis], grid_y[vis], grid_faint[vis])
         return base
@@ -2080,6 +2225,11 @@ def main():
                             c["x"] += c["ux"] * adv; c["y"] += c["uy"] * adv
                         paint_fog(buf, i * 40, ctx)
                         paint_comets(buf, 0, ctx)
+                    elif starfall_mode:
+                        ctx["stars"] = []
+                        seed_stars(ctx, 40)          # scatter a falling snapshot
+                        paint_fog(buf, i * 40, ctx)
+                        paint_stars(buf, 0, ctx)
                     elif plexus_mode:
                         paint_fog(buf, i * 40, ctx)
                         paint_plexus(buf, ctx, 0.55)
@@ -2145,6 +2295,9 @@ def main():
             for c in ctx["comets"]:
                 adv = ctx["rng"].uniform(0.0, 1.0) * (c["L"] + ctx["H"])
                 c["x"] += c["ux"] * adv; c["y"] += c["uy"] * adv
+        if animate and starfall_mode:
+            ctx["stars"] = []
+            seed_stars(ctx, 45)                    # pre-warm: stars already falling
         nbins = ctx["spec"].shape[1] if ctx["spec"] is not None else 16
         g = done = 0
         t0 = time.time()
@@ -2186,6 +2339,10 @@ def main():
                             advance_comets(ctx, g, sf)
                             paint_fog(buf, g, ctx)
                             paint_comets(buf, g, ctx)
+                        elif starfall_mode:
+                            advance_stars(ctx, g, sf)
+                            paint_fog(buf, g, ctx)
+                            paint_stars(buf, g, ctx)
                         elif plexus_mode:
                             paint_fog(buf, g, ctx)     # drifting blue aura
                             pulse = float(np.clip(0.2 + 1.8 * sf.mean(), 0, 1))
