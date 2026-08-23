@@ -759,6 +759,7 @@ def advance_ripples(ctx, g, sf):
     def spawn(inten):
         cx, cy = rng.uniform(0, W), rng.uniform(0, H)
         ctx["ripples"].append(dict(cx=cx, cy=cy, born=g, inten=inten,
+                                   rot=rng.uniform(0, 2 * np.pi),   # triangle orientation
                                    maxr=_ring_maxr(cx, cy, W, H)))
     if kick > RIPPLE["kick_thresh"] and g - ctx["rip_last"] >= RIPPLE["cooldown"]:
         spawn(min(1.5, kick * RIPPLE["gain"]))
@@ -769,19 +770,43 @@ def advance_ripples(ctx, g, sf):
         ctx["ripples"] = ctx["ripples"][-RIPPLE["max_rings"]:]   # oldest are off-screen
 
 
+# Outward edge-normals of an (upward-pointing) equilateral triangle, 120 deg apart.
+_TRI_NORMALS = np.array([-np.pi / 2 + k * (2 * np.pi / 3) for k in range(3)])
+
+
+def _ripple_field(gxv, gyv, cx, cy, shape, rot=0.0):
+    """A distance-like field whose level sets are the ring's shape.
+      'circle'   -> Euclidean radius (round rings).
+      'triangle' -> triangular gauge: the max projection of (p - center) onto the
+                    three edge-normals. {field <= R} is the intersection of three
+                    half-planes = an equilateral triangle, so each expanding level
+                    set is a triangle outline (rotated by `rot`)."""
+    dx = gxv - cx
+    dy = gyv - cy
+    if shape == "triangle":
+        angs = _TRI_NORMALS + rot
+        d = np.cos(angs[0]) * dx + np.sin(angs[0]) * dy
+        for k in (1, 2):
+            d = np.maximum(d, np.cos(angs[k]) * dx + np.sin(angs[k]) * dy)
+        return d
+    return np.sqrt(dx * dx + dy * dy)
+
+
 def paint_ripple(buf, g, ctx):
     """Light the (UI-visible) grid dots: a dim baseline, plus each ring's sharp
-    saturated front and the dim wake trailing behind it. No distance fade."""
+    saturated front and the dim wake trailing behind it. No distance fade. The
+    ring shape (round or triangular) comes from ctx['rip_shape']."""
     gxv, gyv, faintv = ctx["gv"]
     if not gxv.size:
         return
     col = ctx["rip_col"]
+    shape = ctx.get("rip_shape", "circle")
     thick, wl, wa = RIPPLE["thick"], RIPPLE["wake_len"], RIPPLE["wake_amp"]
     speed = RIPPLE["speed"]
     bright = faintv.astype(np.float32).copy()        # always-on dim grid
     for r in ctx["ripples"]:
         radius = (g - r["born"]) * speed
-        d = np.sqrt((gxv - r["cx"]) ** 2 + (gyv - r["cy"]) ** 2)
+        d = _ripple_field(gxv, gyv, r["cx"], r["cy"], shape, r.get("rot", 0.0))
         front = np.exp(-((d - radius) ** 2) / (2.0 * thick * thick))   # sharp ring
         trail = np.clip(1.0 - (radius - d) / wl, 0.0, 1.0)             # behind the front
         trail[d > radius] = 0.0
@@ -1746,12 +1771,14 @@ def main():
     ap.add_argument("--static-bg", action="store_true",
                     help="use a still background (faster) instead of the animated rain effect")
     ap.add_argument("--theme",
-                    choices=("rain", "plexus", "aurora", "ripple", "comets", "bokeh"),
+                    choices=("rain", "plexus", "aurora", "ripple", "tririp",
+                             "comets", "bokeh"),
                     default="rain",
                     help="visual theme: 'rain' (cool rain-on-window, default), "
                          "'plexus' (drifting constellation), 'aurora' (flowing "
                          "northern lights), 'ripple' (dot-grid sonar rings on the "
-                         "beat), 'comets' (down-right streaks with bright heads + "
+                         "beat), 'tririp' (same, but triangle-shaped ripples), "
+                         "'comets' (down-right streaks with bright heads + "
                          "thin tails) — all keep the default layout; or 'bokeh' "
                          "(warm lounge, minimal layout)")
     ap.add_argument("--theme-color", choices=tuple(PALETTES) + ("auto",), default=None,
@@ -1882,7 +1909,7 @@ def main():
     bokeh_mode  = args.theme == "bokeh"
     plexus_mode = args.theme == "plexus"
     aurora_mode = args.theme == "aurora"
-    ripple_mode = args.theme == "ripple"
+    ripple_mode = args.theme in ("ripple", "tririp")   # tririp = triangular ripples
     comets_mode = args.theme == "comets"
     rain_mode   = args.theme == "rain"
     animate = not args.static_bg
@@ -1966,6 +1993,7 @@ def main():
         "plexus": plexus, "aurora": aurora,
         "ripples": [], "rip_prev": 0.0, "rip_last": -999,
         "rip_col": _saturate(THEME["dot"]), "comets": [],
+        "rip_shape": "triangle" if args.theme == "tririp" else "circle",
     }
     if bokeh_mode:
         # timecode bottom-right (warm), above the slim timeline (concept layout)
@@ -2040,6 +2068,7 @@ def main():
                             ctx["ripples"].append(dict(cx=cx, cy=cy,
                                                        born=-int(rr.uniform(5, 45)),
                                                        inten=1.0,
+                                                       rot=rr.uniform(0, 2 * np.pi),
                                                        maxr=_ring_maxr(cx, cy, W, H)))
                         paint_ripple(buf, 0, ctx)
                     elif comets_mode:
