@@ -1420,7 +1420,7 @@ def palette_from_cover(cover):
 
 
 # --------------------------------------------------------------------------- #
-#  rekordbox .cue support
+#  Standard CUE and optional rekordbox support
 # --------------------------------------------------------------------------- #
 _MOJI = {                       # mis-decoded UTF-8 punctuation (leaves "Café" alone)
     "\u00e2\u0080\u0099": "\u2019", "\u00e2\u0080\u0098": "\u2018",
@@ -1448,9 +1448,11 @@ def read_text_any(path):
     return data.decode("utf-8", errors="replace")
 
 
-def cue_index_to_sec(a, b, c):
-    """rekordbox writes INDEX as HH:MM:SS (not the CUE-standard MM:SS:FF)."""
-    return a * 3600 + b * 60 + c
+def cue_index_to_sec(a, b, c, rekordbox=False):
+    """Convert MM:SS:FF (75 frames/sec), or HH:MM:SS in rekordbox mode."""
+    if rekordbox:
+        return a * 3600 + b * 60 + c
+    return a * 60 + b + c / 75.0
 
 
 def clean_track_title(title, performer, do_clean):
@@ -1512,13 +1514,15 @@ def parse_cue(path, args):
             v = grab(line, "PERFORMER")
             if v is not None:
                 cur["performer"] = v; continue
-            m = re.match(r'\s*FILE\s+"(.*)"\s+\w+\s*$', line)
+            source_pattern = (r'\s*FILE\s+"(.*)"\s+\w+\s*$' if args.rekordbox
+                              else r'\s*REM\s+SOURCE_FILE\s+"(.*)"\s*$')
+            m = re.match(source_pattern, line)
             if m:
                 cur["src"] = m.group(1); continue
             m = re.match(r"\s*INDEX\s+01\s+(\d+):(\d+):(\d+)", line)
             if m:
                 a, b, c = (int(x) for x in m.groups())
-                cur["start"] = cue_index_to_sec(a, b, c); continue
+                cur["start"] = cue_index_to_sec(a, b, c, rekordbox=args.rekordbox); continue
     if cur:
         tracks.append(cur)
 
@@ -1872,8 +1876,8 @@ def safe_filename(s):
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(
-        description="Render a DJ-mix visualizer video from a JSON config or a rekordbox .cue file.")
-    ap.add_argument("config", help="path to a .json config or a rekordbox .cue file")
+        description="Render a DJ-mix visualizer video from a JSON config or a .cue file.")
+    ap.add_argument("config", help="path to a .json config or a .cue file")
     ap.add_argument("out", nargs="?", help="output .mp4 (omit with --dry-run)")
     ap.add_argument("--fps", type=int, default=15)
     ap.add_argument("--res", default="1920x1080",
@@ -1889,6 +1893,9 @@ def main():
                          "frames (e.g. 3840x2160 for 4K) — keeps the 1080p-tuned look "
                          "but emits a true-4K file (YouTube allocates more bitrate to it)")
     # cue / display overrides
+    ap.add_argument("--rekordbox", action="store_true",
+                    help="read non-standard CUE HH:MM:SS timestamps and per-track FILE "
+                         "source paths (default: MM:SS:FF at 75 frames/sec and REM SOURCE_FILE)")
     ap.add_argument("--title", help="override mix title")
     ap.add_argument("--subtitle", help="override subtitle (defaults to cue PERFORMER)")
     ap.add_argument("--date", help="override date label")
@@ -1979,7 +1986,7 @@ def main():
                 ap.error(f"--cover expects N=PATH with a track number, got: {spec}")
     preview_mode = args.preview is not None
 
-    # ---- duration + start times, with rekordbox HH:MM:SS sanity check ----
+    # ---- duration + start times, with audio-length sanity check ----
     total = audio_duration(audio) if (audio and os.path.exists(audio)) else None
     starts = [parse_time(t["start"]) for t in tracks]
     if total and starts and max(starts) > total + 1:

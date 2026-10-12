@@ -6,7 +6,7 @@ modeled on liquid-DnB "now playing" videos (f1rstpers0n style): album art, a
 live spectrogram counter, a live timecode, and an animated **"rain on window"**
 background (drifting blue fog + dotted diagonal rain snakes driven by the audio).
 
-Takes either a **rekordbox `.cue`** export or a **JSON** config.
+Takes a **standard `.cue`** file, a **rekordbox `.cue`** export with `--rekordbox`, or a **JSON** config.
 
 <img width="1920" height="1080" alt="08_Tenth Planet - Ghosts (Original Club Vocal Mix)" src="https://github.com/user-attachments/assets/bd4dde36-c314-4051-8949-d36c31f9fc7a" />
 
@@ -33,15 +33,52 @@ artwork). On Windows/WSL, if ffmpeg isn't on PATH, point at it with
 
 ---
 
-## rekordbox `.cue` input  (the main path)
+## `.cue` input
+
+Standard CUE is the default: `INDEX 01` uses `MM:SS:FF` at 75 frames per
+second. Keep the mix audio in the top-level `FILE` line and specify each
+track's original source for cover art with `REM SOURCE_FILE`:
+
+| Mode | Timestamp format | Per-track artwork source |
+| --- | --- | --- |
+| Default | `MM:SS:FF` (75 frames/sec) | `REM SOURCE_FILE "path"` |
+| `--rekordbox` | `HH:MM:SS` | `FILE "path" WAVE` |
+
+Minutes can exceed 59: `140:51:08` means 2 hours, 20 minutes, and
+51.107 seconds in the default mode. `REM SOURCE_FILE` is optional metadata
+for artwork; the top-level `FILE` selects the full mix audio in both modes.
+
+```text
+FILE "OMEGAOPEN.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "Example"
+    PERFORMER "Artist"
+    REM SOURCE_FILE "C:/Users/Gu5hy/Music/example.aiff"
+    INDEX 01 00:00:00
+```
+
+```bash
+# inspect the standard cue and artwork paths
+python3 mixvid.py OmegascapeOpen/OMEGAOPEN.cue --dry-run
+
+# render using standard cue timestamps
+python3 mixvid.py OmegascapeOpen/OMEGAOPEN.cue ../OmegaOpenSep26.mp4
+```
+
+Existing commands for non-standard `HH:MM:SS` cues must now include
+`--rekordbox`. There is no automatic format detection. JSON `start` values
+keep their existing `H:MM:SS`, `MM:SS`, or seconds format.
+
+For the legacy rekordbox format, add `--rekordbox` to use `HH:MM:SS`
+timestamps and per-track `FILE "..." WAVE` source lines:
 
 ```bash
 # see what got parsed before committing to a render
-python3 mixvid.py 01_REC-2026-06-27.cue --dry-run \
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox --dry-run \
     --music-root "C:/Users/Gu5hy/Music/DJ_Library=/home/veril0x/Music/DJ_Library"
 
 # render it
-python3 mixvid.py 01_REC-2026-06-27.cue out.mp4 \
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox out.mp4 \
     --music-root "C:/Users/Gu5hy/Music/DJ_Library=/home/veril0x/Music/DJ_Library" \
     --title "Rainsongs Vol.8 | Liquid Trance Mix" --fps 15
 ```
@@ -50,13 +87,12 @@ What it pulls from the cue:
 - **Mix audio** <- the top-level `FILE` (resolved next to the .cue; override with `--audio`).
 - **Tracklist** <- each `TRACK` block's `TITLE`, `PERFORMER`, and `INDEX 01`.
 - **Subtitle** <- the top-level `PERFORMER` (the DJ name). **Date** <- `REM DATE`.
-- **Cover art** <- embedded artwork in each track's source `FILE` (see below).
+- **Cover art** <- embedded artwork in each track's `REM SOURCE_FILE`
+  (`FILE` with `--rekordbox`; see below).
 
-Notable rekordbox quirks this handles automatically:
-- **`INDEX` is `HH:MM:SS`, not the CUE-standard `MM:SS:FF`.** rekordbox writes
-  wall-clock there; parsing it as frames would make a 55-minute set look 55
-  seconds long. There's a sanity check that warns if track starts overrun the
-  audio length.
+Parsing details:
+- **`INDEX` defaults to `MM:SS:FF`.** Only `--rekordbox` selects `HH:MM:SS`.
+  There's a sanity check that warns if track starts overrun the audio length.
 - **Missing `PERFORMER`** (common on YouTube rips): if the title looks like
   `Artist - Title`, it's split; a trailing YouTube id (`...-bXLC5a7GgR4`) is
   stripped. Disable with `--no-clean-titles`.
@@ -108,7 +144,7 @@ one's start; the last runs to end of audio. `cover`/`release` optional.
 Before committing to a full render, dump one still per track:
 
 ```bash
-python3 mixvid.py 01_REC-2026-06-27.cue --preview \
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox --preview \
     --music-root "C:/Users/Gu5hy/Music/DJ_Library=/home/veril0x/Music/DJ_Library"
 ```
 
@@ -127,7 +163,7 @@ matching audio:
 ```bash
 # NOTE: put the output path BEFORE --video-preview (its optional value would
 # otherwise swallow the positional out arg).
-python3 mixvid.py 01_REC-2026-06-27.cue vpreview.mp4 \
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox vpreview.mp4 \
     --covers Covers/ --video-preview 4      # 4 seconds per track (default 2)
 ```
 
@@ -136,7 +172,7 @@ Fix a wrong/missing cover by pointing a track at an image (1-based track number,
 beats embedded art and everything else):
 
 ```bash
-python3 mixvid.py 01_REC-2026-06-27.cue out.mp4 \
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox out.mp4 \
     --cover 3=art/choral_reef.jpg \
     --cover 12=art/field_of_joy.png
 ```
@@ -165,6 +201,7 @@ The ETA settles after ~10–20 s of frames (it averages over all frames so far).
 --theme rain        background theme: rain | plexus | aurora | ripple | comets | bokeh
 --theme-color C     palette: blue | warm | pink | auto (default: blue, or warm for bokeh)
 --title / --subtitle / --date / --audio    override cue/JSON display fields
+--rekordbox         legacy HH:MM:SS cue timestamps and per-track FILE source paths
 --covers DIR        manual cover folder (01.jpg, 02.png, ...)
 --cover N=PATH      use a specific image for track N (1-based), repeatable
 --music-root OLD=NEW   remap source-file path prefixes (repeatable; auto on WSL)
@@ -222,8 +259,8 @@ Generate chapter timestamps for the video description straight from the cue —
 no render or audio needed:
 
 ```bash
-python3 mixvid.py 01_REC-2026-06-27.cue --chapters            # print to stdout
-python3 mixvid.py 01_REC-2026-06-27.cue --chapters out.txt    # write to a file
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox --chapters            # print to stdout
+python3 mixvid.py 01_REC-2026-06-27.cue --rekordbox --chapters out.txt    # write to a file
 ```
 
 Output is `MM:SS Artist - Title` (switching to `HH:MM:SS` past an hour), with the
